@@ -408,7 +408,7 @@ extension CameraManager {
     var hasFlash: Bool { getCameraInput()?.device.hasFlash ?? false }
     var hasLight: Bool { getCameraInput()?.device.hasTorch ?? false }
 }
-private extension CameraManager {
+public extension CameraManager {
     var isChanging: Bool { cameraMetalView.isAnimating }
 }
 
