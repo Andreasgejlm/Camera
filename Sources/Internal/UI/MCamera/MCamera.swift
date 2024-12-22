@@ -148,7 +148,9 @@ private extension MCamera {
         UINavigationController.attemptRotationToDeviceOrientation()
     }
     func notifyUserOfMediaCaptured(_ capturedMedia: MCameraMedia) {
-        if let image = capturedMedia.getImage() { config.imageCapturedAction(image, .init(mCamera: self)) }
+        if let image = capturedMedia.getImage() {
+            config.imageCapturedAction(image, capturedMedia.metadata, manager.attributes.deviceOrientation, .init(mCamera: self))
+        }
         else if let video = capturedMedia.getVideo() { config.videoCapturedAction(video, .init(mCamera: self)) }
     }
 }

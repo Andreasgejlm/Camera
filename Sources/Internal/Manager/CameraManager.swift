@@ -63,7 +63,8 @@ extension CameraManager {
         motionManager.setup(parent: self)
         try cameraMetalView.setup(parent: self)
         cameraGridView.setup(parent: self)
-
+        setAutoExposureAndWhiteBalance()
+        resetBackCameraScaledZoom()
         startSession()
     }
 }
@@ -163,6 +164,13 @@ extension CameraManager {
     func setOutputType(_ outputType: CameraOutputType) {
         guard outputType != attributes.outputType, !isChanging else { return }
         attributes.outputType = outputType
+    }
+    
+    func changeOutputTypeAndResolution(_ newOutputType: CameraOutputType, _ newResolution: AVCaptureSession.Preset) throws {
+        if newOutputType != attributes.outputType && newResolution != attributes.resolution && !isChanging {
+            setOutputType(newOutputType)
+            setResolution(newResolution)
+        }
     }
 }
 
@@ -420,8 +428,80 @@ extension CameraManager {
 
         attributes = newAttributes
     }
-    func getCameraInput(_ position: CameraPosition? = nil) -> (any CaptureDeviceInput)? { switch position ?? attributes.cameraPosition {
-        case .front: frontCameraInput
-        case .back: backCameraInput
-    }}
+    
+    func getCameraInput(_ position: CameraPosition? = nil) -> (any CaptureDeviceInput)? {
+        switch position ?? attributes.cameraPosition {
+            case .front: frontCameraInput
+            case .back: backCameraInput
+        }
+    }
+    
+    func resetZoomAndTorch(_ position: CameraPosition? = nil) {
+        let currentPosition = position ?? attributes.cameraPosition
+        switch currentPosition {
+        case .back:
+            resetBackCameraScaledZoom()
+        case .front:
+            attributes.zoomFactor = 1.0
+        }
+        attributes.flashMode = .off
+        attributes.lightMode = .off
+    }
+    
+    func resetBackCameraScaledZoom() {
+        guard let camera = backCameraInput?.device else { return }
+        let currectZoomFactor = camera.videoZoomFactor
+        do {
+            try camera.lockForConfiguration()
+            switch camera.deviceType {
+            case .builtInDualWideCamera:
+                if currectZoomFactor != 2.0 {
+                    camera.videoZoomFactor = 2.0
+                }
+            case .builtInTripleCamera:
+                if currectZoomFactor != 2.0 {
+                    camera.videoZoomFactor = 2.0
+                }
+            default:
+                if currectZoomFactor != 1.0 {
+                    camera.videoZoomFactor = 1.0
+                }
+            }
+            camera.unlockForConfiguration()
+                if let device = self.backCameraInput?.device {
+                    self.attributes.zoomFactor = device.videoZoomFactor
+                }
+        } catch {
+            print(error)
+        }
+    }
+    
+    func setAutoExposureAndWhiteBalance() {
+        let cameras = [frontCameraInput, backCameraInput].map { $0?.device }
+        for camera in cameras {
+            guard let camera else { continue }
+            do {
+                try camera.lockForConfiguration()
+                
+                // Enable continuous auto exposure if supported
+                if camera.isExposureModeSupported(.continuousAutoExposure) {
+                    camera.exposureMode = .continuousAutoExposure
+                }
+                
+                // Enable continuous auto white balance if supported
+                if camera.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                    camera.whiteBalanceMode = .continuousAutoWhiteBalance
+                }
+                
+                // Optional: Set HDR mode to auto-adjust if available
+                if camera.isVideoHDREnabled {
+                    camera.automaticallyAdjustsVideoHDREnabled = true
+                }
+                
+                camera.unlockForConfiguration()
+            } catch {
+                camera.unlockForConfiguration()
+            }
+        }
+    }
 }

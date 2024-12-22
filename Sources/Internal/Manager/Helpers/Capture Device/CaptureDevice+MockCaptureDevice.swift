@@ -12,6 +12,16 @@
 import AVKit
 
 class MockCaptureDevice: NSObject, CaptureDevice {
+    var whiteBalanceMode: AVCaptureDevice.WhiteBalanceMode = .continuousAutoWhiteBalance
+    
+    var isVideoHDREnabled: Bool = true
+    
+    var automaticallyAdjustsVideoHDREnabled: Bool = true
+    
+    func isWhiteBalanceModeSupported(_ whiteBalanceMode: AVCaptureDevice.WhiteBalanceMode) -> Bool {
+        return true
+    }
+    
     // MARK: Getters
     var uniqueID: String = UUID().uuidString
     var exposureDuration: CMTime { _exposureDuration }
@@ -31,6 +41,7 @@ class MockCaptureDevice: NSObject, CaptureDevice {
     var hasTorch: Bool { true }
     var isExposurePointOfInterestSupported: Bool { true }
     var isFocusPointOfInterestSupported: Bool { true }
+    var deviceType: AVCaptureDevice.DeviceType { .builtInWideAngleCamera }
 
     // MARK: Setters
     var videoZoomFactor: CGFloat = 1

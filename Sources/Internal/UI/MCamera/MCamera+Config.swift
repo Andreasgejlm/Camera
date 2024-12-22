@@ -10,6 +10,7 @@
 
 
 import SwiftUI
+import AVFoundation
 
 extension MCamera { @MainActor class Config {
     // MARK: Screens
@@ -18,7 +19,7 @@ extension MCamera { @MainActor class Config {
     var errorScreen: ErrorScreenBuilder = DefaultCameraErrorScreen.init
 
     // MARK: Actions
-    var imageCapturedAction: (UIImage, MCamera.Controller) -> () = { _,_ in }
+    var imageCapturedAction: (UIImage, [String: Any]?, AVCaptureVideoOrientation, MCamera.Controller) -> () = { _,_,_,_ in }
     var videoCapturedAction: (URL, MCamera.Controller) -> () = { _,_ in }
     var closeMCameraAction: () -> () = {}
 

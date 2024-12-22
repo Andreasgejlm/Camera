@@ -317,7 +317,7 @@ public extension MCamera {
      }
      ```
      */
-    func onImageCaptured(_ action: @escaping (UIImage, MCamera.Controller) -> ()) -> Self { config.imageCapturedAction = action; return self }
+    func onImageCaptured(_ action: @escaping (UIImage, [String: any Sendable]?, AVCaptureVideoOrientation, MCamera.Controller) -> ()) -> Self { config.imageCapturedAction = action; return self }
 
     /**
      Defines action that is called when a video is captured.

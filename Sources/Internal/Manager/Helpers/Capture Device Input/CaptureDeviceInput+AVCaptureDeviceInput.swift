@@ -16,11 +16,25 @@ extension AVCaptureDeviceInput: CaptureDeviceInput {
         let device = { switch mediaType {
             case .audio: AVCaptureDevice.default(for: .audio)
             case .video where position == .front: AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
-            case .video where position == .back: AVCaptureDevice.default(for: .video)
+            case .video where position == .back: getBackCamera()
             default: fatalError()
         }}()
+        
+        //setAutoExposureAndWhiteBalance([backCamera, frontCamera])
 
         guard let device, let deviceInput = try? Self(device: device) else { return nil }
         return deviceInput
+    }
+    
+    static func getBackCamera() -> AVCaptureDevice? {
+        if let tripleCamera = AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back) {
+            return tripleCamera
+        } else if let dualCamera = AVCaptureDevice.default(.builtInDualCamera, for: .video, position: .back) {
+            return dualCamera
+        } else if let dualCamera = AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back) {
+            return dualCamera
+        } else {
+            return AVCaptureDevice.default(for: .video)
+        }
     }
 }
