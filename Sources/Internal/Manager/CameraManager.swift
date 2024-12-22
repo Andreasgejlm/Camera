@@ -166,7 +166,7 @@ extension CameraManager {
         attributes.outputType = outputType
     }
     
-    func changeOutputTypeAndResolution(_ newOutputType: CameraOutputType, _ newResolution: AVCaptureSession.Preset) throws {
+    func setOutputTypeAndResolution(_ newOutputType: CameraOutputType, _ newResolution: AVCaptureSession.Preset) throws {
         if newOutputType != attributes.outputType && newResolution != attributes.resolution && !isChanging {
             setOutputType(newOutputType)
             setResolution(newResolution)

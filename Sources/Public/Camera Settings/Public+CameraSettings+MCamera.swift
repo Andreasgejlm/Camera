@@ -138,6 +138,7 @@ public extension MCamera {
      For available options, please refer to the ``CameraOutputType`` documentation.
      */
     func setCameraOutputType(_ cameraOutputType: CameraOutputType) -> Self { manager.attributes.outputType = cameraOutputType; return self }
+    
 
     /**
      Changes the initial camera position.
@@ -186,6 +187,12 @@ public extension MCamera {
      - important: Changing the resolution may affect the maximum frame rate that can be set.
      */
     func setResolution(_ resolution: AVCaptureSession.Preset) -> Self { manager.attributes.resolution = resolution; return self }
+    
+    func setOutputTypeAndResolution(_ type: CameraOutputType, _ resolution: AVCaptureSession.Preset) -> Self {
+        manager.attributes.outputType = type
+        manager.attributes.resolution = resolution
+        return self
+    }
 
     /**
      Changes the initial camera frame rate.
