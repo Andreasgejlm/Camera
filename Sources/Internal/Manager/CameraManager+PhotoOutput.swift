@@ -51,6 +51,7 @@ private extension CameraManagerPhotoOutput {
         connection.isVideoMirrored = parent.attributes.mirrorOutput ? parent.attributes.cameraPosition != .front : parent.attributes.cameraPosition == .front
         connection.videoOrientation = parent.attributes.deviceOrientation
     }
+    
 }
 
 // MARK: Receive Data
