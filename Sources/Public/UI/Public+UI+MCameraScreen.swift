@@ -103,7 +103,7 @@ public extension MCameraScreen {
      */
     func setOutputType(_ outputType: CameraOutputType) { cameraManager.setOutputType(outputType) }
 
-    func setOutputTypeAndResolution(_ type: CameraOutputType, _ resolution: AVCaptureSession.Preset) throws { try cameraManager.setOutputTypeAndResolution(type, resolution)
+    func setOutputTypeAndResolution(_ type: CameraOutputType, _ resolution: AVCaptureSession.Preset) { cameraManager.setOutputTypeAndResolution(type, resolution)
     }
     /**
      Set the camera position.

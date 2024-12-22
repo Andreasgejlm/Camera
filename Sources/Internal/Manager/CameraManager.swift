@@ -73,6 +73,7 @@ private extension CameraManager {
         captureSession.sessionPreset = attributes.resolution
 
         cameraLayer.session = captureSession as? AVCaptureSession
+        cameraLayer.frame = cameraView.bounds
         cameraLayer.videoGravity = .resizeAspectFill
         cameraLayer.isHidden = true
         cameraView.layer.addSublayer(cameraLayer)
@@ -166,7 +167,7 @@ extension CameraManager {
         attributes.outputType = outputType
     }
     
-    func setOutputTypeAndResolution(_ newOutputType: CameraOutputType, _ newResolution: AVCaptureSession.Preset) throws {
+    func setOutputTypeAndResolution(_ newOutputType: CameraOutputType, _ newResolution: AVCaptureSession.Preset) {
         if newOutputType != attributes.outputType && newResolution != attributes.resolution && !isChanging {
             setOutputType(newOutputType)
             setResolution(newResolution)
