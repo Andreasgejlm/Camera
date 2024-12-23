@@ -215,6 +215,12 @@ extension CameraManager {
         try setDeviceZoomFactor(zoomFactor, device)
         attributes.zoomFactor = device.videoZoomFactor
     }
+    
+    func rampZoom(to zoomFactor: CGFloat) {
+        guard let device = getCameraInput()?.device, zoomFactor != attributes.zoomFactor, !isChanging else { return }
+        
+    }
+    
 }
 private extension CameraManager {
     func setDeviceZoomFactor(_ zoomFactor: CGFloat, _ device: any CaptureDevice) throws {

@@ -206,6 +206,11 @@ public extension MCameraScreen {
      Set whether the camera grid should be visible.
      */
     func setGridVisibility(_ shouldShowGrid: Bool) { cameraManager.setGridVisibility(shouldShowGrid) }
+    
+    func rampZoom(_ value: CGFloat) {
+        cameraManager.rampZoom(to: value)
+    }
+    
 }
 
 // MARK: Attributes
@@ -225,6 +230,7 @@ public extension MCameraScreen {
     var cameraFilters: [CIFilter] { cameraManager.attributes.cameraFilters }
     var isOutputMirrored: Bool { cameraManager.attributes.mirrorOutput }
     var isGridVisible: Bool { cameraManager.attributes.isGridVisible }
+    var currentCamera: AVCaptureDevice? { cameraManager.attributes.currentCamera }
 }
 public extension MCameraScreen {
     var hasFlash: Bool { cameraManager.hasFlash }

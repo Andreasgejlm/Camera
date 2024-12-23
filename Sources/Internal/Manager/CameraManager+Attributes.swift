@@ -34,6 +34,6 @@ struct CameraManagerAttributes {
     var orientationLocked: Bool = false
     var userBlockedScreenRotation: Bool = false
     
-    var chosenCamera: AVCaptureDevice? = nil
+    var currentCamera: AVCaptureDevice? = nil
 
 }

@@ -67,6 +67,12 @@ extension CaptureDevice {
         let factor = max(min(factor, min(maxAvailableVideoZoomFactor, 5)), minAvailableVideoZoomFactor)
         videoZoomFactor = factor
     }
+    
+    func rampFocus(to targetFactor: CGFloat, duration: TimeInterval) {
+        let clampedFactor = max(min(targetFactor, min(maxAvailableVideoZoomFactor, 5)), minAvailableVideoZoomFactor)
+        
+    }
+    
 }
 
 // MARK: Set Focus Point Of Interest
