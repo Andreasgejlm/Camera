@@ -86,6 +86,7 @@ public extension MCameraScreen {
      }
      ```
      */
+    
     func createCameraOutputView() -> some View { CameraBridgeView(cameraManager: cameraManager).equatable() }
 }
 public extension MCameraScreen {
