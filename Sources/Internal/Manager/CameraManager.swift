@@ -167,12 +167,10 @@ extension CameraManager {
         attributes.outputType = outputType
     }
     
-    func setOutputTypeAndResolution(_ newOutputType: CameraOutputType, _ newResolution: AVCaptureSession.Preset) async {
+    func setOutputTypeAndResolution(_ newOutputType: CameraOutputType, _ newResolution: AVCaptureSession.Preset) {
         if newOutputType != attributes.outputType && newResolution != attributes.resolution && !isChanging {
-            await cameraMetalView.beginCameraFlipAnimation()
             setOutputType(newOutputType)
             setResolution(newResolution)
-            await cameraMetalView.finishCameraFlipAnimation()
         }
     }
 }
@@ -203,6 +201,7 @@ private extension CameraManager {
 extension CameraManager {
     func setResolution(_ resolution: AVCaptureSession.Preset) {
         guard resolution != attributes.resolution, resolution != attributes.resolution, !isChanging else { return }
+        
         captureSession.sessionPreset = resolution
         attributes.resolution = resolution
     }
