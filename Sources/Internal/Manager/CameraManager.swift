@@ -167,10 +167,12 @@ extension CameraManager {
         attributes.outputType = outputType
     }
     
-    func setOutputTypeAndResolution(_ newOutputType: CameraOutputType, _ newResolution: AVCaptureSession.Preset) {
+    func setOutputTypeAndResolution(_ newOutputType: CameraOutputType, _ newResolution: AVCaptureSession.Preset) async {
         if newOutputType != attributes.outputType && newResolution != attributes.resolution && !isChanging {
+            await cameraMetalView.beginCameraFlipAnimation()
             setOutputType(newOutputType)
             setResolution(newResolution)
+            await cameraMetalView.finishCameraFlipAnimation()
         }
     }
 }
@@ -194,6 +196,15 @@ private extension CameraManager {
     func resetAttributesWhenChangingCamera(_ position: CameraPosition) {
         resetAttributes(device: getCameraInput(position)?.device)
         attributes.cameraPosition = position
+    }
+}
+
+// MARK: Set Resolution
+extension CameraManager {
+    func setResolution(_ resolution: AVCaptureSession.Preset) {
+        guard resolution != attributes.resolution, resolution != attributes.resolution, !isChanging else { return }
+        captureSession.sessionPreset = resolution
+        attributes.resolution = resolution
     }
 }
 
@@ -371,21 +382,10 @@ private extension CameraManager {
     }
 }
 
-// MARK: Set Resolution
-extension CameraManager {
-    func setResolution(_ resolution: AVCaptureSession.Preset) {
-        guard resolution != attributes.resolution, resolution != attributes.resolution, !isChanging else { return }
-
-        captureSession.sessionPreset = resolution
-        attributes.resolution = resolution
-    }
-}
-
 // MARK: Set Frame Rate
 extension CameraManager {
     func setFrameRate(_ frameRate: Int32) throws {
         guard let device = getCameraInput()?.device, frameRate != attributes.frameRate, !isChanging else { return }
-
         try setDeviceFrameRate(frameRate, device)
         attributes.frameRate = device.activeVideoMaxFrameDuration.timescale
     }
@@ -416,7 +416,7 @@ public extension CameraManager {
 extension CameraManager {
     func resetAttributes(device: (any CaptureDevice)?) {
         guard let device else { return }
-
+        
         var newAttributes = attributes
         newAttributes.cameraExposure.mode = device.exposureMode
         newAttributes.cameraExposure.duration = device.exposureDuration
@@ -426,6 +426,8 @@ extension CameraManager {
         newAttributes.zoomFactor = device.videoZoomFactor
         newAttributes.lightMode = device.lightMode
         newAttributes.hdrMode = device.hdrMode
+        
+        resetBackCameraScaledZoom()
 
         attributes = newAttributes
     }
