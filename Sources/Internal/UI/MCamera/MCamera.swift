@@ -91,7 +91,7 @@ import SwiftUI
  ```
  */
 public struct MCamera: View {
-    @ObservedObject var manager: CameraManager
+    @StateObject var manager: CameraManager
     @Namespace var namespace
     var config: Config = .init()
 
