@@ -70,6 +70,7 @@ extension CameraManager {
 }
 private extension CameraManager {
     func setupCameraLayer() {
+        print("HEre", attributes.resolution)
         captureSession.sessionPreset = attributes.resolution
 
         cameraLayer.session = captureSession as? AVCaptureSession
