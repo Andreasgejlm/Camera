@@ -95,6 +95,9 @@ public struct MCamera: View {
     @Namespace var namespace
     var config: Config = .init()
 
+    public init(manager: CameraManager) {
+        _manager = StateObject(wrappedValue: manager)
+    }
     
     public var body: some View { if config.isCameraConfigured {
         ZStack(content: createContent)
