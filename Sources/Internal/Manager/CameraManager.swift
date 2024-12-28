@@ -172,6 +172,7 @@ extension CameraManager {
         if newOutputType != attributes.outputType && newResolution != attributes.resolution && !isChanging {
             setOutputType(newOutputType)
             setResolution(newResolution)
+            resetBackCameraScaledZoom()
         }
     }
 }
