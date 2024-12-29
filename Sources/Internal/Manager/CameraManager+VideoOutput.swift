@@ -91,7 +91,7 @@ private extension CameraManagerVideoOutput {
 // MARK: Stop Recording
 private extension CameraManagerVideoOutput {
     func stopRecording() {
-        presentLastFrame()
+        //presentLastFrame()
         output.stopRecording()
         timer.reset()
     }
