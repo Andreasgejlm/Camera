@@ -14,10 +14,11 @@ import SwiftUI
 struct CameraBridgeView: UIViewRepresentable {
     let cameraManager: CameraManager
     let inputView: UIView = .init()
+    let backgroundView: UIView = .init()
 }
 extension CameraBridgeView {
     func makeUIView(context: Context) -> some UIView {
-        cameraManager.initialize(in: inputView)
+        cameraManager.initialize(in: inputView, backgroundView: backgroundView)
         setupTapGesture(context)
         setupPinchGesture(context)
         return inputView
