@@ -19,7 +19,6 @@ import AVKit
     private(set) var captureSession: any CaptureSession
     private(set) var frontCameraInput: (any CaptureDeviceInput)?
     private(set) var backCameraInput: (any CaptureDeviceInput)?
-    private(set) var backgroundCameraInput: (any CaptureDeviceInput)?
 
     // MARK: Output
     private(set) var photoOutput: CameraManagerPhotoOutput = .init()
@@ -27,9 +26,7 @@ import AVKit
 
     // MARK: UI Elements
     private(set) var cameraView: UIView!
-    private(set) var backgroundCameraView: UIView?
     private(set) var cameraLayer: AVCaptureVideoPreviewLayer = .init()
-    private(set) var backgroundCameraLayer: AVCaptureVideoPreviewLayer = .init()
     private(set) var cameraMetalView: CameraMetalView = .init()
     private(set) var cameraGridView: CameraGridView = .init()
 
@@ -41,17 +38,15 @@ import AVKit
     // MARK: Initializer
     init<CS: CaptureSession, CDI: CaptureDeviceInput>(captureSession: CS, captureDeviceInputType: CDI.Type) {
         self.captureSession = captureSession
-        self.frontCameraInput = CDI.get(mediaType: .video, position: .front, deviceType: nil)
-        self.backCameraInput = CDI.get(mediaType: .video, position: .back, deviceType: nil)
-        self.backCameraInput = CDI.get(mediaType: .video, position: .back, deviceType: .builtInUltraWideCamera)
+        self.frontCameraInput = CDI.get(mediaType: .video, position: .front)
+        self.backCameraInput = CDI.get(mediaType: .video, position: .back)
     }
 }
 
 // MARK: Initialize
 extension CameraManager {
-    func initialize(in view: UIView, backgroundView: UIView) {
+    func initialize(in view: UIView) {
         cameraView = view
-        backgroundCameraView = backgroundView
     }
 }
 
@@ -77,20 +72,15 @@ private extension CameraManager {
     func setupCameraLayer() {
         print("HEre", attributes.resolution)
         captureSession.sessionPreset = attributes.resolution
+
         cameraLayer.session = captureSession as? AVCaptureSession
         cameraLayer.frame = cameraView.bounds
-        if let backgroundCameraView {
-            backgroundCameraLayer.session = captureSession as? AVCaptureSession
-            backgroundCameraLayer.frame = backgroundCameraView.bounds
-            backgroundCameraView.layer.addSublayer(backgroundCameraLayer)
-        }
         cameraLayer.videoGravity = .resizeAspectFill
         cameraLayer.isHidden = true
         cameraView.layer.addSublayer(cameraLayer)
     }
     func setupDeviceInputs() throws(MCameraError) {
         try captureSession.add(input: getCameraInput())
-        try captureSession.add(input: getCameraInput(background: true))
         if let audioInput = getAudioInput() { try captureSession.add(input: audioInput) }
     }
     func setupDeviceOutput() throws(MCameraError) {
@@ -105,11 +95,9 @@ private extension CameraManager {
     }
     func startSession() { Task {
         guard let device = getCameraInput()?.device else { return }
-        guard let backgroundDevice = getCameraInput(background: true)?.device else { return }
 
         try await startCaptureSession()
         try setupDevice(device)
-        try setupBackgroundDevice(backgroundDevice)
         resetAttributes(device: device)
         cameraMetalView.performCameraEntranceAnimation()
     }}
@@ -121,7 +109,7 @@ private extension CameraManager {
         else { return nil }
 
         let captureDeviceInputType = type(of: deviceInput)
-        let audioInput = captureDeviceInputType.get(mediaType: .audio, position: .unspecified, deviceType: nil)
+        let audioInput = captureDeviceInputType.get(mediaType: .audio, position: .unspecified)
         return audioInput
     }
     nonisolated func startCaptureSession() async throws {
@@ -133,18 +121,6 @@ private extension CameraManager {
         device.setExposureTargetBias(attributes.cameraExposure.targetBias)
         device.setFrameRate(attributes.frameRate)
         device.setZoomFactor(attributes.zoomFactor)
-        device.setLightMode(attributes.lightMode)
-        device.hdrMode = attributes.hdrMode
-        device.unlockForConfiguration()
-    }
-    func setupBackgroundDevice(_ device: any CaptureDevice) throws {
-        try device.lockForConfiguration()
-        device.setExposureMode(attributes.cameraExposure.mode,
-                               duration: attributes.cameraExposure.duration,
-                               iso: attributes.cameraExposure.iso)
-        device.setExposureTargetBias(attributes.cameraExposure.targetBias)
-        device.setFrameRate(attributes.frameRate)
-        device.setZoomFactor(1.0)
         device.setLightMode(attributes.lightMode)
         device.hdrMode = attributes.hdrMode
         device.unlockForConfiguration()
@@ -463,11 +439,10 @@ extension CameraManager {
         attributes = newAttributes
     }
     
-    func getCameraInput(_ position: CameraPosition? = nil, background: Bool? = nil) -> (any CaptureDeviceInput)? {
-        if let background, background { return backgroundCameraInput }
+    func getCameraInput(_ position: CameraPosition? = nil) -> (any CaptureDeviceInput)? {
         switch position ?? attributes.cameraPosition {
-            case .front: return frontCameraInput
-            case .back: return backCameraInput
+            case .front: frontCameraInput
+            case .back: backCameraInput
         }
     }
     
