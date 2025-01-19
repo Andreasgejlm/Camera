@@ -141,6 +141,7 @@ public extension MCamera {
         var new = self
         new.manager.attributes.outputType = cameraOutputType
         return new
+        
     }
     
 
