@@ -33,4 +33,5 @@ struct CameraManagerAttributes {
     var frameOrientation: CGImagePropertyOrientation = .right
     var orientationLocked: Bool = false
     var userBlockedScreenRotation: Bool = false
+    var isMacroMode: Bool = false
 }

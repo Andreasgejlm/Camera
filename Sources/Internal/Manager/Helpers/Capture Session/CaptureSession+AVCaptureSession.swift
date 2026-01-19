@@ -30,10 +30,18 @@ extension AVCaptureSession {
 extension AVCaptureSession {
     func add(input: (any CaptureDeviceInput)?) throws(MCameraError) {
         guard let input = input as? AVCaptureDeviceInput else { throw .cannotSetupInput }
+        
+        beginConfiguration()
+        defer { commitConfiguration() }
+        
         if canAddInput(input) { addInput(input) }
     }
     func remove(input: (any CaptureDeviceInput)?) {
         guard let input = input as? AVCaptureDeviceInput else { return }
+        
+        beginConfiguration()
+        defer { commitConfiguration() }
+        
         removeInput(input)
     }
 }

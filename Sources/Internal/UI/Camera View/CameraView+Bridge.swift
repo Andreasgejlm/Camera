@@ -57,12 +57,22 @@ extension CameraBridgeView.Coordinator {
     }
 }
 
-// MARK: On Pinch
 extension CameraBridgeView.Coordinator {
-    @MainActor @objc func onPinchGesture(_ pinch: UIPinchGestureRecognizer) { if pinch.state == .changed {
-        do {
-            let desiredZoomFactor = parent.cameraManager.attributes.zoomFactor + atan2(pinch.velocity, 33)
-            try parent.cameraManager.setCameraZoomFactor(desiredZoomFactor)
-        } catch {}
-    }}
+    @MainActor @objc func onPinchGesture(_ pinch: UIPinchGestureRecognizer) {
+        if pinch.state == .changed {
+            do {
+                let currentZoom = parent.cameraManager.attributes.zoomFactor
+                
+                // Scale sensitivity based on current zoom level
+                // The more zoomed in, the faster it responds
+                let zoomSensitivity = currentZoom * 0.35
+                
+                // Calculate zoom delta proportional to both velocity and current zoom
+                let zoomDelta = atan2(pinch.velocity, 33) * zoomSensitivity
+                
+                let desiredZoomFactor = currentZoom + zoomDelta
+                try parent.cameraManager.setCameraZoomFactor(desiredZoomFactor)
+            } catch {}
+        }
+    }
 }

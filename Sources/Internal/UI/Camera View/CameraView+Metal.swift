@@ -25,11 +25,17 @@ import AVKit
 // MARK: Setup
 extension CameraMetalView {
     func setup(parent: CameraManager) throws(MCameraError) {
+        #if targetEnvironment(simulator)
+        // Minimal setup for DEBUG/simulator mode
+        print("📷 DEBUG MODE: Skipping Metal view setup (no camera frames)")
+        self.parent = parent
+        #else
         guard let metalDevice = MTLCreateSystemDefaultDevice() else { throw .cannotSetupMetalDevice }
 
         self.assignInitialValues(parent: parent, metalDevice: metalDevice)
         self.configureMetalView(metalDevice: metalDevice)
         self.addToParent(parent.cameraView)
+        #endif
     }
 }
 private extension CameraMetalView {
@@ -39,7 +45,8 @@ private extension CameraMetalView {
         self.commandQueue = metalDevice.makeCommandQueue()
     }
     func configureMetalView(metalDevice: MTLDevice) {
-        self.parent.cameraView.alpha = 0
+        guard let cameraView = self.parent.cameraView else { return }
+        cameraView.alpha = 0
 
         self.delegate = self
         self.device = metalDevice
@@ -59,24 +66,36 @@ private extension CameraMetalView {
 
 // MARK: Camera Entrance
 extension CameraMetalView {
-    func performCameraEntranceAnimation() { UIView.animate(withDuration: 0.33) { [self] in
-        parent.cameraView.alpha = 1
-    }}
+    func performCameraEntranceAnimation() {
+        #if targetEnvironment(simulator)
+        // Skip animation in DEBUG mode if parent not set
+        guard let parent = parent else {
+            print("📷 DEBUG MODE: Skipping entrance animation (parent not set)")
+            return
+        }
+        #endif
+        
+        UIView.animate(withDuration: 0.33) { [self] in
+            parent.cameraView.alpha = 1
+        }
+    }
 }
 
 // MARK: Image Capture
 extension CameraMetalView {
     func performImageCaptureAnimation() {
+        guard let cameraView = parent.cameraView else { return }
         let blackMatte = createBlackMatte()
 
-        parent.cameraView.addSubview(blackMatte)
+        cameraView.addSubview(blackMatte)
         animateBlackMatte(blackMatte)
     }
 }
 private extension CameraMetalView {
     func createBlackMatte() -> UIView {
+        guard let cameraView = parent.cameraView else { return UIView() }
         let view = UIView()
-        view.frame = parent.cameraView.frame
+        view.frame = cameraView.frame
         view.backgroundColor = .init(resource: .mijickBackgroundPrimary)
         view.alpha = 0
         return view
@@ -118,17 +137,19 @@ private extension CameraMetalView {
         return image
     }
     func insertBlurView(_ snapshot: UIImage?) {
-        let blurView = UIImageView(frame: parent.cameraView.frame)
+        guard let cameraView = parent.cameraView else { return }
+        let blurView = UIImageView(frame: cameraView.frame)
         blurView.image = snapshot
         blurView.contentMode = .scaleAspectFill
         blurView.clipsToBounds = true
         blurView.tag = .blurViewTag
         blurView.applyBlurEffect(style: .regular)
 
-        parent.cameraView.addSubview(blurView)
+        cameraView.addSubview(blurView)
     }
     func animateBlurFlip() {
-        UIView.transition(with: parent.cameraView, duration: 0.44, options: cameraFlipAnimationTransition) {}
+        guard let cameraView = parent.cameraView else { return }
+        UIView.transition(with: cameraView, duration: 0.44, options: cameraFlipAnimationTransition) {}
     }
 }
 private extension CameraMetalView {
@@ -138,17 +159,21 @@ private extension CameraMetalView {
 // MARK: Camera Focus
 extension CameraMetalView {
     func performCameraFocusAnimation(touchPoint: CGPoint) {
+        guard let cameraView = parent.cameraView else { return }
         removeExistingFocusIndicatorAnimations()
 
         let focusIndicator = focusIndicator.create(at: touchPoint)
-        parent.cameraView.addSubview(focusIndicator)
+        cameraView.addSubview(focusIndicator)
         animateFocusIndicator(focusIndicator)
     }
 }
 private extension CameraMetalView {
-    func removeExistingFocusIndicatorAnimations() { if let view = parent.cameraView.viewWithTag(.focusIndicatorTag) {
-        view.removeFromSuperview()
-    }}
+    func removeExistingFocusIndicatorAnimations() {
+        guard let cameraView = parent.cameraView else { return }
+        if let view = cameraView.viewWithTag(.focusIndicatorTag) {
+            view.removeFromSuperview()
+        }
+    }
     func animateFocusIndicator(_ focusIndicator: UIImageView) {
         UIView.animate(withDuration: 0.44, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0, animations: { focusIndicator.transform = .init(scaleX: 1, y: 1) }) { _ in
             UIView.animate(withDuration: 0.44, delay: 1.44, animations: { focusIndicator.alpha = 0.2 }) { _ in
@@ -161,11 +186,11 @@ private extension CameraMetalView {
 // MARK: Camera Orientation
 extension CameraMetalView {
     func beginCameraOrientationAnimation(if shouldAnimate: Bool) async { if shouldAnimate {
-        parent.cameraView.alpha = 0
+        // Removed alpha manipulation - no black flash during orientation changes
         await Task.sleep(seconds: 0.1)
     }}
     func finishCameraOrientationAnimation(if shouldAnimate: Bool) { if shouldAnimate {
-        UIView.animate(withDuration: 0.2, delay: 0.1) { self.parent.cameraView.alpha = 1 }
+        // Removed alpha manipulation - smooth orientation transition
     }}
 }
 

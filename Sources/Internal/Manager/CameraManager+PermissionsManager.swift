@@ -16,6 +16,11 @@ import AVKit
 // MARK: Request Access
 extension CameraManagerPermissionsManager {
     func requestAccess(parent: CameraManager) async throws(MCameraError) {
+        #if targetEnvironment(simulator)
+        // Skip permissions in DEBUG/simulator mode - using mock devices
+        print("📷 DEBUG MODE: Skipping camera permissions (using mock devices)")
+        return
+        #else
         do {
             try await getAuthorizationStatus(for: .video)
             if parent.attributes.isAudioSourceAvailable { try await getAuthorizationStatus(for: .audio) }
@@ -24,6 +29,7 @@ extension CameraManagerPermissionsManager {
             parent.attributes.error = error
             throw error
         }
+        #endif
     }
 }
 private extension CameraManagerPermissionsManager {

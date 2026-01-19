@@ -14,10 +14,19 @@ import AVKit
 
 // MARK: Initializer
 public extension MCamera {
-    init() { self.init(manager: .init(
-        captureSession: AVCaptureSession(),
-        captureDeviceInputType: AVCaptureDeviceInput.self
-    ))}
+    init() {
+        #if targetEnvironment(simulator)
+        self.init(manager: .init(
+            captureSession: MockCaptureSession(),
+            captureDeviceInputType: MockDeviceInput.self
+        ))
+        #else
+        self.init(manager: .init(
+            captureSession: AVCaptureSession(),
+            captureDeviceInputType: AVCaptureDeviceInput.self
+        ))
+        #endif
+    }
 }
 
 
@@ -317,7 +326,7 @@ public extension MCamera {
      }
      ```
      */
-    func onImageCaptured(_ action: @escaping (UIImage, MCamera.Controller) -> ()) -> Self { config.imageCapturedAction = action; return self }
+    func onImageCaptured(_ action: @escaping (MCameraMedia, MCamera.Controller) -> ()) -> Self { config.imageCapturedAction = action; return self }
 
     /**
      Defines action that is called when a video is captured.

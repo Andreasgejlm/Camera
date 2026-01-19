@@ -50,18 +50,35 @@ extension CameraManagerVideoOutput {
 }
 
 // MARK: Start Recording
-private extension CameraManagerVideoOutput {
+extension CameraManagerVideoOutput {
     func startRecording() {
+        guard !isRecording else { return }
+        
+        #if targetEnvironment(simulator)
+        // Mock recording for DEBUG/simulator mode
+        startMockRecording()
+        #else
         guard let url = prepareUrlForVideoRecording() else { return }
-
+        // Audio input is now always connected, no need to add it here
+        
         configureOutput()
-        storeLastFrame()
         output.startRecording(to: url, recordingDelegate: self)
         startRecordingTimer()
         parent.objectWillChange.send()
+        #endif
     }
+    
+    #if targetEnvironment(simulator)
+    private func startMockRecording() {
+        print("📹 DEBUG MODE: Mock recording started")
+        startRecordingTimer()
+        parent.objectWillChange.send()
+    }
+    #endif
 }
 private extension CameraManagerVideoOutput {
+    var isRecording: Bool { output.isRecording }
+    
     func prepareUrlForVideoRecording() -> URL? {
         FileManager.prepareURLForVideoOutput()
     }
@@ -89,41 +106,88 @@ private extension CameraManagerVideoOutput {
 }
 
 // MARK: Stop Recording
-private extension CameraManagerVideoOutput {
+extension CameraManagerVideoOutput {
     func stopRecording() {
-        presentLastFrame()
+        #if targetEnvironment(simulator)
+        stopMockRecording()
+        #else
         output.stopRecording()
+        #endif
         timer.reset()
+        // Audio input stays connected - no need to remove it
     }
-}
-private extension CameraManagerVideoOutput {
-    func presentLastFrame() {
-        let firstRecordedFrame = MCameraMedia(data: firstRecordedFrame)
-        parent.setCapturedMedia(firstRecordedFrame)
+    
+    #if targetEnvironment(simulator)
+    private func stopMockRecording() {
+        print("📹 DEBUG MODE: Mock recording stopped")
+        // Create a mock video URL
+        Task {
+            await Task.sleep(seconds: 0.5)
+            if let mockVideoURL = createMockVideo() {
+                let capturedVideo = MCameraMedia(data: mockVideoURL)
+                parent.setCapturedMedia(capturedVideo)
+            }
+        }
     }
+    
+    private func createMockVideo() -> URL? {
+        // For now, just return nil - you could generate a real video file here if needed
+        print("📹 DEBUG MODE: Mock video created")
+        return nil
+    }
+    #endif
 }
 
 // MARK: Receive Data
 extension CameraManagerVideoOutput: @preconcurrency AVCaptureFileOutputRecordingDelegate {
-    func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: (any Error)?) { Task {
-        let videoURL = try await prepareVideo(outputFileURL: outputFileURL, cameraFilters: parent.attributes.cameraFilters)
-        let capturedVideo = MCameraMedia(data: videoURL)
-
-        await Task.sleep(seconds: Animation.duration)
-        parent.setCapturedMedia(capturedVideo)
-    }}
+    func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: (any Error)?) {
+        Task {
+            // Check for recording errors first
+            if let nsError = error as NSError? {
+                let finished = (nsError.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool) ?? false
+                if !finished {
+                    print("Recording failed: \(nsError)")
+                    return
+                }
+            }
+            
+            // Audio input stays connected - no need to remove it
+            
+            do {
+                let videoURL = try await prepareVideo(
+                    outputFileURL: outputFileURL,
+                    cameraFilters: parent.attributes.cameraFilters
+                )
+                let capturedVideo = MCameraMedia(data: videoURL)
+                
+                await Task.sleep(seconds: Animation.duration)
+                parent.setCapturedMedia(capturedVideo)
+                
+                // Clean up temporary file if different
+                if videoURL != outputFileURL {
+                    try? FileManager.default.removeItem(at: outputFileURL)
+                }
+            } catch {
+                print("Video processing failed: \(error)")
+            }
+        }
+    }
 }
 private extension CameraManagerVideoOutput {
-    func prepareVideo(outputFileURL: URL, cameraFilters: [CIFilter]) async throws -> URL {
+    func prepareVideo(outputFileURL: URL, cameraFilters: [CIFilter]) async throws -> URL? {
         if cameraFilters.isEmpty { return outputFileURL }
-
+        
         let asset = AVAsset(url: outputFileURL)
-        let videoComposition = try await AVVideoComposition.applyFilters(to: asset) { self.applyFiltersToVideo($0, cameraFilters) }
-        let fileUrl = FileManager.prepareURLForVideoOutput()
+        let videoComposition = try await AVVideoComposition.applyFilters(to: asset) {
+            self.applyFiltersToVideo($0, cameraFilters)
+        }
+        
+        // Create NEW output URL
+        let fileUrl = FileManager.prepareURLForVideoOutput() // Use unique filename!
         let exportSession = prepareAssetExportSession(asset, fileUrl, videoComposition)
-
+        
         try await exportVideo(exportSession, fileUrl)
-        return fileUrl ?? outputFileURL
+        return fileUrl
     }
 }
 private extension CameraManagerVideoOutput {
@@ -131,10 +195,29 @@ private extension CameraManagerVideoOutput {
         let videoFrame = prepareVideoFrame(request, filters)
         request.finish(with: videoFrame, context: nil)
     }
-    nonisolated func exportVideo(_ exportSession: AVAssetExportSession?, _ fileUrl: URL?) async throws { if let fileUrl {
-        if #available(iOS 18, *) { try await exportSession?.export(to: fileUrl, as: .mov) }
-        else { await exportSession?.export() }
-    }}
+    nonisolated func exportVideo(_ exportSession: AVAssetExportSession?, _ fileUrl: URL?) async throws {
+        guard let exportSession, let fileUrl else {
+            throw MCameraError.invalidVideoExportSession
+        }
+        
+        if #available(iOS 18, *) {
+            try await exportSession.export(to: fileUrl, as: .mp4)
+        } else {
+            await exportSession.export()
+            
+            // Check status on iOS 17 and earlier
+            switch exportSession.status {
+            case .completed:
+                break
+            case .failed:
+                throw exportSession.error ?? MCameraError.videoExportFailed
+            case .cancelled:
+                throw MCameraError.videoExportCancelled
+            default:
+                throw MCameraError.videoExportUnexpectedFail
+            }
+        }
+    }
 }
 private extension CameraManagerVideoOutput {
     nonisolated func prepareVideoFrame(_ request: AVAsynchronousCIImageFilteringRequest, _ filters: [CIFilter]) -> CIImage { request
@@ -144,7 +227,7 @@ private extension CameraManagerVideoOutput {
     }
     nonisolated func prepareAssetExportSession(_ asset: AVAsset, _ fileUrl: URL?, _ composition: AVVideoComposition?) -> AVAssetExportSession? {
         let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPreset1920x1080)
-        export?.outputFileType = .mov
+        export?.outputFileType = .mp4
         export?.outputURL = fileUrl
         export?.videoComposition = composition
         return export

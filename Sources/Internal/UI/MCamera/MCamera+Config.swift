@@ -18,7 +18,7 @@ extension MCamera { @MainActor class Config {
     var errorScreen: ErrorScreenBuilder = DefaultCameraErrorScreen.init
 
     // MARK: Actions
-    var imageCapturedAction: (UIImage, MCamera.Controller) -> () = { _,_ in }
+    var imageCapturedAction: (MCameraMedia, MCamera.Controller) -> () = { _,_ in }
     var videoCapturedAction: (URL, MCamera.Controller) -> () = { _,_ in }
     var closeMCameraAction: () -> () = {}
 

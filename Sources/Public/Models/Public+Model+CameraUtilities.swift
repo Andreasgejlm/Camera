@@ -12,9 +12,17 @@
 import SwiftUI
 
 // MARK: Camera Output Type
-public enum CameraOutputType: CaseIterable {
+public enum CameraOutputType: String, Codable, CaseIterable {
     case photo
     case video
+    
+    public var label: String {
+        return self.rawValue.uppercased()
+    }
+
+    public static var sortedModes: [Self] {
+        return [.video, .photo]
+    }
 }
 
 // MARK: Camera Position

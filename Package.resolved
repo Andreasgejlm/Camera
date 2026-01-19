@@ -1,0 +1,15 @@
+{
+  "originHash" : "15d589cb5475d7b066c8fae041c40048892fe47a288b5333d00c156dd3b9e100",
+  "pins" : [
+    {
+      "identity" : "timer",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Mijick/Timer",
+      "state" : {
+        "revision" : "342371c33c3f084d82a4818447ba77d858064c85",
+        "version" : "2.0.0"
+      }
+    }
+  ],
+  "version" : 3
+}

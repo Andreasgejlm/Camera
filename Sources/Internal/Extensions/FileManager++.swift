@@ -31,5 +31,8 @@ private extension FileManager {
     }
 }
 private extension FileManager {
-    static var videoPath: String { "mijick-camera-video-output.mp4" }
+    static var videoPath: String {
+        let id: String = UUID().uuidString
+        return "mijick-camera-video-output-\(id).mp4"
+    }
 }

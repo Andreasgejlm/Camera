@@ -95,6 +95,10 @@ public extension MCameraScreen {
      The output type depends on what ``cameraOutputType`` is set to.
      */
     func captureOutput() { cameraManager.captureOutput() }
+    
+    func startRecording() { cameraManager.startRecording() }
+    
+    func stopRecording() { cameraManager.stopRecording() }
 
     /**
      Set the output type of the camera.
@@ -118,6 +122,8 @@ public extension MCameraScreen {
      - note: If the zoom factor is out of bounds, it will be set to the closest available value.
      */
     func setZoomFactor(_ zoomFactor: CGFloat) throws { try cameraManager.setCameraZoomFactor(zoomFactor) }
+    
+    func rampZoom(to zoomFactor: CGFloat) throws { try cameraManager.rampZoom(to: zoomFactor) }
 
     /**
      Set the flash mode of the camera.
@@ -136,13 +142,16 @@ public extension MCameraScreen {
      - note: If the selected light mode is not available, the light mode will not be changed.
      */
     func setLightMode(_ lightMode: CameraLightMode) throws { try cameraManager.setLightMode(lightMode) }
+    
+    
+    func setLevelVisibility(_ shouldShowLevel: Bool) { }
 
     /**
      Set the camera resolution.
 
      - important: Changing the resolution may affect the maximum frame rate that can be set.
      */
-    func setResolution(_ resolution: AVCaptureSession.Preset) { cameraManager.setResolution(resolution) }
+    func setResolution(_ resolution: AVCaptureSession.Preset) { Task { try await cameraManager.setResolution(resolution) } }
 
     /**
      Set the camera frame rate.
@@ -222,6 +231,16 @@ public extension MCameraScreen {
     var cameraFilters: [CIFilter] { cameraManager.attributes.cameraFilters }
     var isOutputMirrored: Bool { cameraManager.attributes.mirrorOutput }
     var isGridVisible: Bool { cameraManager.attributes.isGridVisible }
+    var activeDevice: AVCaptureDevice? {
+        switch cameraManager.attributes.cameraPosition {
+        case .back:
+            return cameraManager.backCameraInput?.device as? AVCaptureDevice
+        case .front:
+            return cameraManager.frontCameraInput?.device as? AVCaptureDevice
+        }
+    }
+    var isMacroMode: Bool { cameraManager.attributes.isMacroMode }
+    
 }
 public extension MCameraScreen {
     var hasFlash: Bool { cameraManager.hasFlash }

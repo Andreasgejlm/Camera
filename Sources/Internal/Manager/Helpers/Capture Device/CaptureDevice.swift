@@ -47,8 +47,10 @@ protocol CaptureDevice: NSObject {
     func lockForConfiguration() throws
     func unlockForConfiguration()
     func isExposureModeSupported(_ exposureMode: AVCaptureDevice.ExposureMode) -> Bool
-    func setExposureModeCustom(duration: CMTime, iso: Float, completionHandler: ((CMTime) -> Void)?)
-    func setExposureTargetBias(_ bias: Float, completionHandler handler: ((CMTime) -> ())?)
+    func setExposureModeCustom(duration: CMTime, iso: Float, completionHandler: (@Sendable (CMTime) -> Void)?)
+    func setExposureTargetBias(_ bias: Float, completionHandler handler: (@Sendable (CMTime) -> ())?)
+    func ramp(toVideoZoomFactor factor: CGFloat, withRate rate: Float)
+    func cancelVideoZoomRamp()
 }
 
 
@@ -59,8 +61,63 @@ protocol CaptureDevice: NSObject {
 // MARK: Set Zoom Factor
 extension CaptureDevice {
     func setZoomFactor(_ factor: CGFloat) {
-        let factor = max(min(factor, min(maxAvailableVideoZoomFactor, 5)), minAvailableVideoZoomFactor)
+        let factor = min(max(factor, minAvailableVideoZoomFactor), min(maxAvailableVideoZoomFactor, maxZoom))
         videoZoomFactor = factor
+    }
+    
+    func rampZoom(to factor: CGFloat) {
+        let factor = min(max(factor, minAvailableVideoZoomFactor), min(maxAvailableVideoZoomFactor, maxZoom))
+        cancelVideoZoomRamp()
+        ramp(toVideoZoomFactor: factor, withRate: 5)
+    }
+
+    var isTripleCamera: Bool {
+        guard let device: AVCaptureDevice = self as? AVCaptureDevice else { return false }
+        
+        return device.isTripleCamera
+    }
+    
+    var maxZoom: CGFloat {
+        if self.isTripleCamera {
+            return 100
+        } else {
+            return 50
+        }
+    }
+
+}
+
+extension AVCaptureDevice {
+    /// Determines if this device is a triple camera system
+    /// Triple camera systems include wide, ultra-wide, and telephoto lenses
+    var isTripleCamera: Bool {
+        guard deviceType == .builtInTripleCamera else {
+            return false
+        }
+        return true
+    }
+    
+    /// More comprehensive check that verifies the device has all three lens types
+    var hasTripleCameraSystem: Bool {
+        // Check if it's the triple camera device type
+        if deviceType == .builtInTripleCamera {
+            return true
+        }
+        
+        // Fallback: Check if device has all three constituent devices
+        if #available(iOS 13.0, *) {
+            if let multiCamDevice = self as? AVCaptureDevice,
+               multiCamDevice.constituentDevices.count >= 3 {
+                let types = multiCamDevice.constituentDevices.map { $0.deviceType }
+                let hasWide = types.contains(.builtInWideAngleCamera)
+                let hasUltraWide = types.contains(.builtInUltraWideCamera)
+                let hasTelephoto = types.contains(.builtInTelephotoCamera)
+                
+                return hasWide && hasUltraWide && hasTelephoto
+            }
+        }
+        
+        return false
     }
 }
 
@@ -123,7 +180,7 @@ extension CaptureDevice {
 // MARK: Set Exposure Target Bias
 extension CaptureDevice {
     func setExposureTargetBias(_ bias: Float) {
-        guard isExposureModeSupported(.custom) else { return }
+//        guard isExposureModeSupported(.custom) else { return }
 
         let bias = max(min(bias, maxExposureTargetBias), minExposureTargetBias)
         setExposureTargetBias(bias, completionHandler: nil)

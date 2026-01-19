@@ -12,6 +12,11 @@
 import AVKit
 
 class MockCaptureDevice: NSObject, CaptureDevice {
+    func ramp(toVideoZoomFactor factor: CGFloat, withRate rate: Float) {
+        return
+    }
+    func cancelVideoZoomRamp() { return }
+    
     // MARK: Getters
     var uniqueID: String = UUID().uuidString
     var exposureDuration: CMTime { _exposureDuration }
