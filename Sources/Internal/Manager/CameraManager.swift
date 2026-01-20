@@ -329,9 +329,9 @@ extension CameraManager {
         do {
             let audio = AVAudioSession.sharedInstance()
             try audio.setAllowHapticsAndSystemSoundsDuringRecording(true)
-            try audio.setCategory(.playAndRecord, options: [.mixWithOthers])
-
-            try audio.setActive(true)
+            // Configure category with mixWithOthers to allow background audio to continue
+            // Don't activate the session here - it will activate automatically when needed
+            try audio.setCategory(.playAndRecord, options: [.mixWithOthers, .allowBluetooth])
         } catch {
             print("Audio session setup error: \(error)")
             throw MCameraError.failedToSetupAudioInput
