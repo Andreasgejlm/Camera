@@ -324,41 +324,50 @@ private extension CameraManager {
 
 // MARK: Audio management
 extension CameraManager {
-    
+
     private func configureAudioSession() throws(MCameraError) {
         do {
             let audio = AVAudioSession.sharedInstance()
             try audio.setAllowHapticsAndSystemSoundsDuringRecording(true)
-            try audio.setCategory(.playAndRecord, options: [.mixWithOthers])
-            
-            try audio.setActive(true)
+            // Configure category with mixWithOthers to allow background audio to continue
+            // Don't activate the session here - it will activate automatically when needed
+            try audio.setCategory(.playAndRecord, options: [.mixWithOthers, .allowBluetooth])
         } catch {
             print("Audio session setup error: \(error)")
             throw MCameraError.failedToSetupAudioInput
         }
     }
-    
+
+    private func deactivateAudioSession() {
+        do {
+            let audio = AVAudioSession.sharedInstance()
+            // Deactivate with notifyOthersOnDeactivation to allow background audio to resume
+            try audio.setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("Audio session deactivation error: \(error)")
+        }
+    }
+
     func addAudioInput() throws(MCameraError) {
         guard attributes.isAudioSourceAvailable else { return }
         guard audioInput == nil else { return } // Already added
-        
+
         // Configure audio session for recording
-        
+
         // Get and add audio input
         guard let input = getAudioInput() else {
             throw MCameraError.failedToSetupAudioInput
         }
-        
+
         try captureSession.add(input: input)
         self.audioInput = input
     }
-    
+
     func removeAudioInput() {
         guard let input = audioInput else { return }
-        
+
         captureSession.remove(input: input)
         self.audioInput = nil
-        try? configureAudioSession()
     }
 }
 
@@ -386,6 +395,7 @@ extension CameraManager {
 extension CameraManager {
     func cancel() {
         removeAudioInput()
+        deactivateAudioSession()
         captureSession = captureSession.stopRunningAndReturnNewInstance()
         motionManager.reset()
         videoOutput.reset()
