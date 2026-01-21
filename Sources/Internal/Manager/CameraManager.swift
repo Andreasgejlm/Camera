@@ -86,8 +86,8 @@ extension CameraManager {
         motionManager.setup(parent: self)
         try cameraMetalView.setup(parent: self)
         cameraGridView.setup(parent: self)
-        try configureAudioSession()
-                        
+        // Don't configure audio session here - do it only when recording starts
+
         startSession()
     }
 }
@@ -325,13 +325,14 @@ private extension CameraManager {
 // MARK: Audio management
 extension CameraManager {
 
-    private func configureAudioSession() throws(MCameraError) {
+    func configureAudioSessionForRecording() throws(MCameraError) {
         do {
             let audio = AVAudioSession.sharedInstance()
             try audio.setAllowHapticsAndSystemSoundsDuringRecording(true)
             // Configure category with mixWithOthers to allow background audio to continue
-            // Don't activate the session here - it will activate automatically when needed
             try audio.setCategory(.playAndRecord, options: [.mixWithOthers, .allowBluetooth])
+            // Activate the session now that we're about to record
+            try audio.setActive(true, options: [])
         } catch {
             print("Audio session setup error: \(error)")
             throw MCameraError.failedToSetupAudioInput
