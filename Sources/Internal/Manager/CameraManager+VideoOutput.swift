@@ -59,9 +59,8 @@ extension CameraManagerVideoOutput {
         startMockRecording()
         #else
         guard let url = prepareUrlForVideoRecording() else { return }
-        // Configure audio session only when recording starts
-        try? parent.configureAudioSessionForRecording()
-        // Audio input is now always connected, no need to add it here
+        // No audio session configuration - preserve background music playback
+        // Videos will be recorded without audio
 
         configureOutput()
         output.startRecording(to: url, recordingDelegate: self)
@@ -116,7 +115,7 @@ extension CameraManagerVideoOutput {
         output.stopRecording()
         #endif
         timer.reset()
-        // Audio input stays connected - no need to remove it
+        // No audio input used - music playback continues uninterrupted
     }
     
     #if targetEnvironment(simulator)
@@ -152,9 +151,7 @@ extension CameraManagerVideoOutput: @preconcurrency AVCaptureFileOutputRecording
                     return
                 }
             }
-            
-            // Audio input stays connected - no need to remove it
-            
+
             do {
                 let videoURL = try await prepareVideo(
                     outputFileURL: outputFileURL,

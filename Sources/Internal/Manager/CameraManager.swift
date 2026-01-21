@@ -244,13 +244,8 @@ private extension CameraManager {
     #endif
     func setupDeviceInputs() throws(MCameraError) {
         try captureSession.add(input: getCameraInput())
-        // Add audio input at startup to avoid session interruption during recording
-        do {
-            try addAudioInput()
-        } catch {
-            print("⚠️ Could not add audio input during setup: \(error)")
-            // Non-fatal error - camera can still work without audio
-        }
+        // Don't add audio input - this would interrupt background music
+        // Videos will be recorded without audio to preserve music playback
     }
     func setupDeviceOutput() throws(MCameraError) {
         try photoOutput.setup(parent: self)
@@ -395,8 +390,7 @@ extension CameraManager {
 // MARK: Cancel
 extension CameraManager {
     func cancel() {
-        removeAudioInput()
-        deactivateAudioSession()
+        // No audio input to remove - never added to preserve music playback
         captureSession = captureSession.stopRunningAndReturnNewInstance()
         motionManager.reset()
         videoOutput.reset()
