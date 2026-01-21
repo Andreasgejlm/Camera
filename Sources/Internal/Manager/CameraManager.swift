@@ -86,7 +86,8 @@ extension CameraManager {
         motionManager.setup(parent: self)
         try cameraMetalView.setup(parent: self)
         cameraGridView.setup(parent: self)
-        // Don't configure audio session here - do it only when recording starts
+        // Configure audio session WITHOUT activating to preserve background music
+        try? configureAudioSessionForRecording()
 
         startSession()
     }
@@ -244,8 +245,13 @@ private extension CameraManager {
     #endif
     func setupDeviceInputs() throws(MCameraError) {
         try captureSession.add(input: getCameraInput())
-        // Don't add audio input - this would interrupt background music
-        // Videos will be recorded without audio to preserve music playback
+        // Add audio input at startup to avoid session interruption during recording
+        do {
+            try addAudioInput()
+        } catch {
+            print("⚠️ Could not add audio input during setup: \(error)")
+            // Non-fatal error - camera can still work without audio
+        }
     }
     func setupDeviceOutput() throws(MCameraError) {
         try photoOutput.setup(parent: self)
@@ -324,10 +330,11 @@ extension CameraManager {
         do {
             let audio = AVAudioSession.sharedInstance()
             try audio.setAllowHapticsAndSystemSoundsDuringRecording(true)
-            // Configure category with mixWithOthers to allow background audio to continue
-            try audio.setCategory(.playAndRecord, options: [.mixWithOthers, .allowBluetooth])
-            // Activate the session now that we're about to record
-            try audio.setActive(true, options: [])
+            // Configure with mixWithOthers to allow background music to continue playing
+            // defaultToSpeaker ensures recorded audio goes to speaker, not just receiver
+            try audio.setCategory(.playAndRecord, options: [.mixWithOthers, .allowBluetooth, .defaultToSpeaker])
+            // DO NOT call setActive(true) - let AVFoundation activate automatically
+            // This prevents interrupting background music
         } catch {
             print("Audio session setup error: \(error)")
             throw MCameraError.failedToSetupAudioInput
@@ -390,7 +397,8 @@ extension CameraManager {
 // MARK: Cancel
 extension CameraManager {
     func cancel() {
-        // No audio input to remove - never added to preserve music playback
+        removeAudioInput()
+        deactivateAudioSession()
         captureSession = captureSession.stopRunningAndReturnNewInstance()
         motionManager.reset()
         videoOutput.reset()

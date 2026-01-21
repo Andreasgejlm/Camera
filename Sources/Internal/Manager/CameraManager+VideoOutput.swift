@@ -59,8 +59,9 @@ extension CameraManagerVideoOutput {
         startMockRecording()
         #else
         guard let url = prepareUrlForVideoRecording() else { return }
-        // No audio session configuration - preserve background music playback
-        // Videos will be recorded without audio
+        // Audio session already configured during setup with mixWithOthers
+        // AVFoundation will activate automatically, preserving background music
+        // Audio input is now always connected, no need to add it here
 
         configureOutput()
         output.startRecording(to: url, recordingDelegate: self)
@@ -115,7 +116,7 @@ extension CameraManagerVideoOutput {
         output.stopRecording()
         #endif
         timer.reset()
-        // No audio input used - music playback continues uninterrupted
+        // Audio input stays connected - no need to remove it
     }
     
     #if targetEnvironment(simulator)
@@ -151,7 +152,9 @@ extension CameraManagerVideoOutput: @preconcurrency AVCaptureFileOutputRecording
                     return
                 }
             }
-
+            
+            // Audio input stays connected - no need to remove it
+            
             do {
                 let videoURL = try await prepareVideo(
                     outputFileURL: outputFileURL,
