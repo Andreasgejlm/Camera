@@ -745,11 +745,14 @@ extension CameraManager {
     func setResolution(_ resolution: AVCaptureSession.Preset) async throws {
         guard !isChanging else { return }
 
+        // Primary behavior: do not drop requests; wait for active transition to finish.
+        // Failsafe: keep only the latest queued resolution if multiple requests arrive.
         pendingResolution = resolution
-        guard !isPerformingFormatTransition else { return }
 
         while let targetResolution = pendingResolution {
             pendingResolution = nil
+
+            try await waitForFormatTransitionToFinish()
             guard targetResolution != attributes.resolution else { continue }
 
             try await performFormatTransition {
@@ -760,6 +763,13 @@ extension CameraManager {
                     try? self.setCameraZoomFactor(defaultZoomFactor)
                 }
             }
+        }
+    }
+}
+private extension CameraManager {
+    func waitForFormatTransitionToFinish() async throws {
+        while isPerformingFormatTransition {
+            try await Task.sleep(nanoseconds: 10_000_000)
         }
     }
 }
