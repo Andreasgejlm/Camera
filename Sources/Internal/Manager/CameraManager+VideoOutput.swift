@@ -53,14 +53,16 @@ extension CameraManagerVideoOutput {
 extension CameraManagerVideoOutput {
     func startRecording() {
         guard !isRecording else { return }
-        
+
         #if targetEnvironment(simulator)
         // Mock recording for DEBUG/simulator mode
         startMockRecording()
         #else
         guard let url = prepareUrlForVideoRecording() else { return }
+        // Audio session already configured during setup with mixWithOthers
+        // AVFoundation will activate automatically, preserving background music
         // Audio input is now always connected, no need to add it here
-        
+
         configureOutput()
         output.startRecording(to: url, recordingDelegate: self)
         startRecordingTimer()

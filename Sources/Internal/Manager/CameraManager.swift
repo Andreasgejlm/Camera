@@ -34,6 +34,7 @@ import AVKit
     // MARK: Format Transition Elements
     private var transitionOverlayView: UIImageView?
     private var isPerformingFormatTransition: Bool = false
+    private var pendingResolution: AVCaptureSession.Preset?
 
     // MARK: Others
     private(set) var permissionsManager: CameraManagerPermissionsManager = .init()
@@ -86,8 +87,9 @@ extension CameraManager {
         motionManager.setup(parent: self)
         try cameraMetalView.setup(parent: self)
         cameraGridView.setup(parent: self)
-        try configureAudioSession()
-                        
+        // Configure audio session WITHOUT activating to preserve background music
+        try? configureAudioSessionForRecording()
+
         startSession()
     }
 }
@@ -325,13 +327,15 @@ private extension CameraManager {
 // MARK: Audio management
 extension CameraManager {
 
-    private func configureAudioSession() throws(MCameraError) {
+    func configureAudioSessionForRecording() throws(MCameraError) {
         do {
             let audio = AVAudioSession.sharedInstance()
             try audio.setAllowHapticsAndSystemSoundsDuringRecording(true)
-            // Configure category with mixWithOthers to allow background audio to continue
-            // Don't activate the session here - it will activate automatically when needed
-            try audio.setCategory(.playAndRecord, options: [.mixWithOthers, .allowBluetooth])
+            // Configure with mixWithOthers to allow background music to continue playing
+            // defaultToSpeaker ensures recorded audio goes to speaker, not just receiver
+            try audio.setCategory(.playAndRecord, options: [.mixWithOthers, .allowBluetooth, .defaultToSpeaker])
+            // DO NOT call setActive(true) - let AVFoundation activate automatically
+            // This prevents interrupting background music
         } catch {
             print("Audio session setup error: \(error)")
             throw MCameraError.failedToSetupAudioInput
@@ -739,14 +743,22 @@ private extension CameraManager {
 // MARK: Set Resolution
 extension CameraManager {
     func setResolution(_ resolution: AVCaptureSession.Preset) async throws {
-        guard resolution != attributes.resolution, !isChanging, !isPerformingFormatTransition else { return }
-        
-        try await performFormatTransition {
-            self.captureSession.sessionPreset = resolution
-            self.attributes.resolution = resolution
-            if let device = self.getCameraInput()?.device {
-                let defaultZoomFactor: CGFloat = self.getDefaultZoomFactor(of: device)
-                try? self.setCameraZoomFactor(defaultZoomFactor)
+        guard !isChanging else { return }
+
+        pendingResolution = resolution
+        guard !isPerformingFormatTransition else { return }
+
+        while let targetResolution = pendingResolution {
+            pendingResolution = nil
+            guard targetResolution != attributes.resolution else { continue }
+
+            try await performFormatTransition {
+                self.captureSession.sessionPreset = targetResolution
+                self.attributes.resolution = targetResolution
+                if let device = self.getCameraInput()?.device {
+                    let defaultZoomFactor: CGFloat = self.getDefaultZoomFactor(of: device)
+                    try? self.setCameraZoomFactor(defaultZoomFactor)
+                }
             }
         }
     }
@@ -923,7 +935,10 @@ extension CameraManager {
         
         // Step 1: Capture current preview
         guard let previewImage = captureCurrentPreview() else {
-            throw MCameraError.failedToTransition
+            // If we cannot capture a snapshot for the visual transition,
+            // still apply the format change to keep camera state consistent.
+            try formatChange()
+            return
         }
         
         // Step 2: Create overlay at parent level and hide camera view
