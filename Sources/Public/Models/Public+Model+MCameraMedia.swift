@@ -22,4 +22,14 @@ public extension MCameraMedia {
      Gets the video URL from the media object.
      */
     func getVideo() -> URL? { video }
+
+    /**
+     Gets the paired Live Photo movie URL from the media object.
+     */
+    func getLivePhotoMovie() -> URL? { livePhotoMovieURL }
+
+    /**
+     Gets the Live Photo representation from the media object.
+     */
+    func getLivePhoto() -> MCameraLivePhoto? { .init(media: self) }
 }

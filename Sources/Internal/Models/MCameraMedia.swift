@@ -14,6 +14,7 @@ import SwiftUI
 public struct MCameraMedia: Sendable {
     let image: UIImage?
     let video: URL?
+    let livePhotoMovieURL: URL?
     // Store metadata as raw Data to keep Sendable conformance (e.g., EXIF/XMP blob)
     let metadata: Data?
 
@@ -22,11 +23,13 @@ public struct MCameraMedia: Sendable {
         if let image = data as? UIImage {
             self.image = image
             self.video = nil
+            self.livePhotoMovieURL = nil
             self.metadata = nil
         }
         else if let video = data as? URL {
             self.video = video
             self.image = nil
+            self.livePhotoMovieURL = nil
             self.metadata = nil
         }
         else {
@@ -35,16 +38,18 @@ public struct MCameraMedia: Sendable {
     }
 
     // New initializer for captured photo with preserved metadata (raw data)
-    init(image: UIImage?, metadata: Data? = nil) {
+    init(image: UIImage?, metadata: Data? = nil, livePhotoMovieURL: URL? = nil) {
         self.image = image
         self.video = nil
+        self.livePhotoMovieURL = livePhotoMovieURL
         self.metadata = metadata
     }
 
     // Convenience initializer for legacy dictionary metadata; encodes to Data if possible
-    init(image: UIImage?, metadata: [String: Any]? = nil) {
+    init(image: UIImage?, metadata: [String: Any]? = nil, livePhotoMovieURL: URL? = nil) {
         self.image = image
         self.video = nil
+        self.livePhotoMovieURL = livePhotoMovieURL
         // Attempt to serialize metadata dictionary to Data in a stable way
         if metadata == nil {
             self.metadata = nil
@@ -61,12 +66,16 @@ public struct MCameraMedia: Sendable {
     init(video: URL, metadata: Data? = nil) {
         self.video = video
         self.image = nil
+        self.livePhotoMovieURL = nil
         self.metadata = metadata
     }
 
     // Helper to check if metadata is preserved
     var hasMetadata: Bool {
         return metadata != nil && !(metadata?.isEmpty ?? true)
+    }
+    var hasLivePhotoMovie: Bool {
+        livePhotoMovieURL != nil
     }
 }
 
@@ -76,8 +85,9 @@ extension MCameraMedia: Equatable {
         // Compare core media content
         let imageEqual = lhs.image == rhs.image
         let videoEqual = lhs.video == rhs.video
+        let livePhotoMovieEqual = lhs.livePhotoMovieURL == rhs.livePhotoMovieURL
         let metadataDataEqual = lhs.metadata == rhs.metadata
-        return imageEqual && videoEqual && metadataDataEqual
+        return imageEqual && videoEqual && livePhotoMovieEqual && metadataDataEqual
     }
 }
 

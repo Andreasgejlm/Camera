@@ -108,6 +108,11 @@ public extension MCameraScreen {
     func setOutputType(_ outputType: CameraOutputType) { cameraManager.setOutputType(outputType) }
 
     /**
+     Set the photo capture mode.
+     */
+    func setPhotoCaptureMode(_ mode: PhotoCaptureMode) { cameraManager.setPhotoCaptureMode(mode) }
+
+    /**
      Set the camera position.
 
      For available options, please refer to the ``CameraPosition`` documentation.
@@ -217,6 +222,8 @@ public extension MCameraScreen {
 // MARK: Attributes
 public extension MCameraScreen {
     var cameraOutputType: CameraOutputType { cameraManager.attributes.outputType }
+    var photoCaptureMode: PhotoCaptureMode { cameraManager.attributes.photoCaptureMode }
+    var isLivePhotoCaptureSupported: Bool { cameraManager.attributes.isLivePhotoCaptureSupported }
     var cameraPosition: CameraPosition { cameraManager.attributes.cameraPosition }
     var zoomFactor: CGFloat { cameraManager.attributes.zoomFactor }
     var flashMode: CameraFlashMode { cameraManager.attributes.flashMode }

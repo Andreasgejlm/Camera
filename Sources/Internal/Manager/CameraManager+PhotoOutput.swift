@@ -14,6 +14,14 @@ import AVKit
 @MainActor class CameraManagerPhotoOutput: NSObject {
     private(set) var parent: CameraManager!
     private(set) var output: AVCapturePhotoOutput = .init()
+    private var pendingPhotoCaptures: [Int64: PendingPhotoCapture] = [:]
+
+    private struct PendingPhotoCapture {
+        var image: UIImage?
+        var metadata: [String: Any]?
+        var isLivePhotoRequested: Bool
+        var livePhotoMovieURL: URL?
+    }
 }
 
 // MARK: Setup
@@ -21,6 +29,9 @@ extension CameraManagerPhotoOutput {
     func setup(parent: CameraManager) throws(MCameraError) {
         self.parent = parent
         try self.parent.captureSession.add(output: output)
+
+        output.isLivePhotoCaptureEnabled = output.isLivePhotoCaptureSupported
+        self.parent.attributes.isLivePhotoCaptureSupported = output.isLivePhotoCaptureSupported
     }
 }
 
@@ -37,6 +48,7 @@ extension CameraManagerPhotoOutput {
         captureMockPhoto()
         #else
         let settings = getPhotoOutputSettings()
+        setupPendingCapture(for: settings)
 
         configureOutput()
         output.capturePhoto(with: settings, delegate: self)
@@ -84,7 +96,31 @@ private extension CameraManagerPhotoOutput {
     func getPhotoOutputSettings() -> AVCapturePhotoSettings {
         let settings = AVCapturePhotoSettings()
         settings.flashMode = parent.attributes.flashMode.toDeviceFlashMode()
+
+        if shouldCaptureLivePhoto(), let livePhotoMovieURL = FileManager.prepareURLForLivePhotoMovieOutput() {
+            settings.livePhotoMovieFileURL = livePhotoMovieURL
+        }
         return settings
+    }
+    func setupPendingCapture(for settings: AVCapturePhotoSettings) {
+        let isLivePhotoRequested = settings.livePhotoMovieFileURL != nil
+        guard isLivePhotoRequested else {
+            pendingPhotoCaptures.removeValue(forKey: settings.uniqueID)
+            return
+        }
+
+        pendingPhotoCaptures[settings.uniqueID] = .init(
+            image: nil,
+            metadata: nil,
+            isLivePhotoRequested: true,
+            livePhotoMovieURL: settings.livePhotoMovieFileURL
+        )
+    }
+    func shouldCaptureLivePhoto() -> Bool {
+        parent.attributes.isLivePhotoCaptureSupported = output.isLivePhotoCaptureSupported
+
+        return parent.attributes.photoCaptureMode == .livePhoto
+            && parent.attributes.isLivePhotoCaptureSupported
     }
     func configureOutput() {
         guard let connection = output.connection(with: .video), connection.isVideoMirroringSupported else { return }
@@ -97,18 +133,67 @@ private extension CameraManagerPhotoOutput {
 // MARK: Receive Data
 extension CameraManagerPhotoOutput: @preconcurrency AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: (any Error)?) {
-        guard let imageData = photo.fileDataRepresentation() else { return }
-        
-        // 🔑 Get metadata and create UIImage for display
-        var originalMetadata = photo.metadata as? [String: Any]
-        let capturedUIImage = UIImage(data: imageData)
-        
-        print("📸 [METADATA] Original data has \(originalMetadata?.keys.count ?? 0) metadata keys")
-        
-        // ✅ Create MCameraMedia with original data (preserves metadata) + UIImage for display
-        let capturedMedia = MCameraMedia(image: capturedUIImage, metadata: originalMetadata)
-        
-        print("✅ [METADATA] MCameraMedia created with preserved metadata")
+        let uniqueID = photo.resolvedSettings.uniqueID
+        let capturedUIImage: UIImage? = photo.fileDataRepresentation().flatMap(UIImage.init(data:))
+        let metadata = photo.metadata as? [String: Any]
+
+        if var pendingCapture = pendingPhotoCaptures[uniqueID] {
+            pendingCapture.image = capturedUIImage
+            pendingCapture.metadata = metadata
+            pendingPhotoCaptures[uniqueID] = pendingCapture
+            return
+        }
+
+        guard error == nil, capturedUIImage != nil else { return }
+
+        let capturedMedia = MCameraMedia(image: capturedUIImage, metadata: metadata)
+        parent.setCapturedMedia(capturedMedia)
+    }
+
+    func photoOutput(_ output: AVCapturePhotoOutput,
+                     didFinishProcessingLivePhotoToMovieFileAt outputFileURL: URL,
+                     duration: CMTime,
+                     photoDisplayTime: CMTime,
+                     resolvedSettings: AVCaptureResolvedPhotoSettings,
+                     error: (any Error)?) {
+        let uniqueID = resolvedSettings.uniqueID
+        guard var pendingCapture = pendingPhotoCaptures[uniqueID] else { return }
+
+        if error != nil {
+            FileManager.clearFileIfExists(pendingCapture.livePhotoMovieURL)
+            pendingCapture.livePhotoMovieURL = nil
+        } else {
+            pendingCapture.livePhotoMovieURL = outputFileURL
+        }
+
+        pendingPhotoCaptures[uniqueID] = pendingCapture
+    }
+
+    func photoOutput(_ output: AVCapturePhotoOutput,
+                     didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings,
+                     error: (any Error)?) {
+        let uniqueID = resolvedSettings.uniqueID
+        guard let pendingCapture = pendingPhotoCaptures.removeValue(forKey: uniqueID) else { return }
+
+        guard let capturedImage = pendingCapture.image else {
+            FileManager.clearFileIfExists(pendingCapture.livePhotoMovieURL)
+            return
+        }
+
+        if error == nil,
+           pendingCapture.isLivePhotoRequested,
+           let livePhotoMovieURL = pendingCapture.livePhotoMovieURL {
+            let capturedMedia = MCameraMedia(
+                image: capturedImage,
+                metadata: pendingCapture.metadata,
+                livePhotoMovieURL: livePhotoMovieURL
+            )
+            parent.setCapturedMedia(capturedMedia)
+            return
+        }
+
+        FileManager.clearFileIfExists(pendingCapture.livePhotoMovieURL)
+        let capturedMedia = MCameraMedia(image: capturedImage, metadata: pendingCapture.metadata)
         parent.setCapturedMedia(capturedMedia)
     }
 }

@@ -25,6 +25,12 @@ public enum CameraOutputType: String, Codable, CaseIterable {
     }
 }
 
+// MARK: Photo Capture Mode
+public enum PhotoCaptureMode: CaseIterable {
+    case still
+    case livePhoto
+}
+
 // MARK: Camera Position
 public enum CameraPosition: CaseIterable {
     case back

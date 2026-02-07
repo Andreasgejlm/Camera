@@ -36,12 +36,14 @@ import SwiftUI
  ## Actions after capturing media
  Use one of the methods below to set actions that will be called after capturing media:
     - ``onImageCaptured(_:)``
+    - ``onLivePhotoCaptured(_:)``
     - ``onVideoCaptured(_:)``
  - note: If there is no **Captured Media Screen**, the action is called immediately after the media is captured, otherwise it is triggered after the user accepts the captured media in the **Captured Media Screen**.
 
  ## Camera Configuration
  To change the initial camera settings, use the following methods:
     - ``setCameraOutputType(_:)``
+    - ``setPhotoCaptureMode(_:)``
     - ``setCameraPosition(_:)``
     - ``setAudioAvailability(_:)``
     - ``setZoomFactor(_:)``
@@ -153,6 +155,9 @@ private extension MCamera {
         }
         else if let _ = capturedMedia.getImage() {
             config.imageCapturedAction(capturedMedia, .init(mCamera: self))
+            if let livePhoto = capturedMedia.getLivePhoto() {
+                config.livePhotoCapturedAction(livePhoto, .init(mCamera: self))
+            }
         }
     }
 }
@@ -176,6 +181,7 @@ private extension MCamera {
         lockScreenOrientation(nil)
     }
     func onCapturedMediaRejected() {
+        manager.clearCapturedLivePhotoTempFile()
         manager.setCapturedMedia(nil)
     }
     func onCapturedMediaAccepted() {

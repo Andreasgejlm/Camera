@@ -398,6 +398,7 @@ extension CameraManager {
 // MARK: Cancel
 extension CameraManager {
     func cancel() {
+        clearCurrentCapturedLivePhotoIfNeeded()
         removeAudioInput()
         deactivateAudioSession()
         captureSession = captureSession.stopRunningAndReturnNewInstance()
@@ -501,12 +502,36 @@ extension CameraManager {
 // MARK: Set Captured Media
 extension CameraManager {
     func setCapturedMedia(_ capturedMedia: MCameraMedia?) { withAnimation(.mSpring) {
+        clearReplacedLivePhotoIfNeeded(nextMedia: capturedMedia)
         attributes.capturedMedia = capturedMedia
     }}
+
+    func clearCapturedLivePhotoTempFile() {
+        clearCurrentCapturedLivePhotoIfNeeded()
+    }
+}
+private extension CameraManager {
+    func clearCurrentCapturedLivePhotoIfNeeded() {
+        FileManager.clearFileIfExists(attributes.capturedMedia?.getLivePhotoMovie())
+    }
+    func clearReplacedLivePhotoIfNeeded(nextMedia: MCameraMedia?) {
+        guard nextMedia != nil else { return }
+
+        let currentLivePhotoMovie = attributes.capturedMedia?.getLivePhotoMovie()
+        let nextLivePhotoMovie = nextMedia?.getLivePhotoMovie()
+
+        guard currentLivePhotoMovie != nextLivePhotoMovie else { return }
+        FileManager.clearFileIfExists(currentLivePhotoMovie)
+    }
 }
 
 // MARK: Set Camera Output
 extension CameraManager {
+    func setPhotoCaptureMode(_ mode: PhotoCaptureMode) {
+        guard mode != attributes.photoCaptureMode, !isChanging else { return }
+        attributes.photoCaptureMode = mode
+    }
+
     func setOutputType(_ outputType: CameraOutputType) {
         guard outputType != attributes.outputType, !isChanging else { return }
         attributes.outputType = outputType

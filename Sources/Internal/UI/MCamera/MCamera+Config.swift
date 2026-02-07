@@ -19,6 +19,7 @@ extension MCamera { @MainActor class Config {
 
     // MARK: Actions
     var imageCapturedAction: (MCameraMedia, MCamera.Controller) -> () = { _,_ in }
+    var livePhotoCapturedAction: (MCameraLivePhoto, MCamera.Controller) -> () = { _,_ in }
     var videoCapturedAction: (URL, MCamera.Controller) -> () = { _,_ in }
     var closeMCameraAction: () -> () = {}
 

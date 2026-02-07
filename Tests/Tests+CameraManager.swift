@@ -36,6 +36,7 @@ extension CameraManagerTests {
         #expect(cameraManager.cameraGridView.parent != nil)
         #expect(cameraManager.motionManager.manager.accelerometerUpdateInterval > 0)
         #expect(cameraManager.notificationCenterManager.parent != nil)
+        #expect(cameraManager.attributes.photoCaptureMode == .still)
     }
     @Test("Setup: Custom Attributes") func setupWithCustomAttributes() async throws {
         cameraManager.attributes.cameraPosition = .front
@@ -87,6 +88,23 @@ extension CameraManagerTests {
         #expect(cameraManager.captureSession.deviceInputs.count == 0)
         #expect(cameraManager.captureSession.outputs.count == 0)
     }
+
+    @Test("Cancel Camera Session Clears Live Photo Temp File") func cancelCameraSessionClearsLivePhotoTempFile() async throws {
+        let livePhotoURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mijick-camera-test-live-photo-\(UUID().uuidString).mov")
+
+        FileManager.default.createFile(atPath: livePhotoURL.path, contents: .init("temp".utf8))
+        #expect(FileManager.default.fileExists(atPath: livePhotoURL.path))
+
+        cameraManager.attributes.capturedMedia = MCameraMedia(
+            image: UIImage(),
+            metadata: nil as Data?,
+            livePhotoMovieURL: livePhotoURL
+        )
+
+        cameraManager.cancel()
+        #expect(FileManager.default.fileExists(atPath: livePhotoURL.path) == false)
+    }
 }
 
 // MARK: Set Camera Output
@@ -99,6 +117,16 @@ extension CameraManagerTests {
 
         cameraManager.setOutputType(.video)
         #expect(cameraManager.attributes.outputType == .video)
+    }
+
+    @Test("Set Photo Capture Mode") func setPhotoCaptureMode() async throws {
+        try await setupCamera()
+
+        cameraManager.setPhotoCaptureMode(.livePhoto)
+        #expect(cameraManager.attributes.photoCaptureMode == .livePhoto)
+
+        cameraManager.setPhotoCaptureMode(.still)
+        #expect(cameraManager.attributes.photoCaptureMode == .still)
     }
 }
 

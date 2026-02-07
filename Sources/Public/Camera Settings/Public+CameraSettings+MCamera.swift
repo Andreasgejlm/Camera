@@ -149,6 +149,13 @@ public extension MCamera {
     func setCameraOutputType(_ cameraOutputType: CameraOutputType) -> Self { manager.attributes.outputType = cameraOutputType; return self }
 
     /**
+     Changes the initial photo capture mode.
+
+     For available options, please refer to the ``PhotoCaptureMode`` documentation.
+     */
+    func setPhotoCaptureMode(_ mode: PhotoCaptureMode) -> Self { manager.attributes.photoCaptureMode = mode; return self }
+
+    /**
      Changes the initial camera position.
 
      For available options, please refer to the ``CameraPosition`` documentation.
@@ -327,6 +334,13 @@ public extension MCamera {
      ```
      */
     func onImageCaptured(_ action: @escaping (MCameraMedia, MCamera.Controller) -> ()) -> Self { config.imageCapturedAction = action; return self }
+
+    /**
+     Defines action that is called when a Live Photo is captured.
+
+     - note: This callback is additive and does not replace ``onImageCaptured(_:)``.
+     */
+    func onLivePhotoCaptured(_ action: @escaping (MCameraLivePhoto, MCamera.Controller) -> ()) -> Self { config.livePhotoCapturedAction = action; return self }
 
     /**
      Defines action that is called when a video is captured.
