@@ -86,7 +86,7 @@ import AVFoundation
         }
     }
 
-    /// Debounces macro-state changes by ~150 ms.
+    /// Debounces macro-state changes by 500 ms.
     ///
     /// `activePrimaryConstituent` and `videoZoomFactor` are updated independently by
     /// AVFoundation, so a single lens-switch produces two rapid KVO events.  Without
@@ -97,7 +97,7 @@ import AVFoundation
     private func scheduleEmit(_ newValue: Bool) {
         debounceTask?.cancel()
         debounceTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 150_000_000) // 150 ms
+            try? await Task.sleep(nanoseconds: 500_000_000) // 500 ms
             guard !Task.isCancelled else { return }
             guard newValue != lastIsMacroLike else { return }
             lastIsMacroLike = newValue
