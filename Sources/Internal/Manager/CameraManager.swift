@@ -80,6 +80,9 @@ extension CameraManager {
         try await permissionsManager.requestAccess(parent: self)
 
         setupCameraLayer()
+        // Configure audio session BEFORE adding audio input to prevent interrupting background audio.
+        // If configured after, AVFoundation activates the session with default settings that pause other audio.
+        try? configureAudioSessionForRecording()
         try setupDeviceInputs()
         try setupDeviceOutput()
         try setupFrameRecorder()
@@ -87,8 +90,6 @@ extension CameraManager {
         motionManager.setup(parent: self)
         try cameraMetalView.setup(parent: self)
         cameraGridView.setup(parent: self)
-        // Configure audio session WITHOUT activating to preserve background music
-        try? configureAudioSessionForRecording()
 
         startSession()
     }
@@ -333,7 +334,7 @@ extension CameraManager {
             try audio.setAllowHapticsAndSystemSoundsDuringRecording(true)
             // Configure with mixWithOthers to allow background music to continue playing
             // defaultToSpeaker ensures recorded audio goes to speaker, not just receiver
-            try audio.setCategory(.playAndRecord, options: [.mixWithOthers, .allowBluetooth, .defaultToSpeaker])
+            try audio.setCategory(.playAndRecord, options: [.mixWithOthers, .allowBluetoothA2DP, .defaultToSpeaker])
             // DO NOT call setActive(true) - let AVFoundation activate automatically
             // This prevents interrupting background music
         } catch {
