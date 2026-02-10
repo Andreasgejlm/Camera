@@ -80,8 +80,9 @@ extension CameraManager {
         try await permissionsManager.requestAccess(parent: self)
 
         setupCameraLayer()
-        // Configure audio session BEFORE adding audio input to prevent interrupting background audio.
-        // If configured after, AVFoundation activates the session with default settings that pause other audio.
+        // Set audio session category early so iOS knows to mix with other audio.
+        // This only sets the category — it does NOT add the mic input or activate
+        // the session, so background audio is not interrupted.
         try? configureAudioSessionForRecording()
         try setupDeviceInputs()
         try setupDeviceOutput()
@@ -247,13 +248,8 @@ private extension CameraManager {
     #endif
     func setupDeviceInputs() throws(MCameraError) {
         try captureSession.add(input: getCameraInput())
-        // Add audio input at startup to avoid session interruption during recording
-        do {
-            try addAudioInput()
-        } catch {
-            print("⚠️ Could not add audio input during setup: \(error)")
-            // Non-fatal error - camera can still work without audio
-        }
+        // Audio input is NOT added here — it is deferred to recording start
+        // to avoid activating the audio session and interrupting background audio
     }
     func setupDeviceOutput() throws(MCameraError) {
         try photoOutput.setup(parent: self)
