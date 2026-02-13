@@ -26,14 +26,16 @@ import AVFoundation
         return AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: .video, position: .unspecified)
     }()
 
-    private var lastIsMacroLike: Bool = false
+    private var lastIsMacroLike: Bool?
     private var onChange: ((_ isMacroLike: Bool) -> Void)?
     private var debounceTask: Task<Void, Never>?
 
     func setup(parent: CameraManager, device: AVCaptureDevice) {
         stop()
         self.parent = parent
-        self.lastIsMacroLike = false
+        self.lastIsMacroLike = nil
+        // Prevent stale UI state while observers are being attached/reconciled.
+        parent.attributes.isMacroMode = false
         configureVirtualSwitchingIfSupported(device)
 
         start(device: device) { [weak parent] isMacroLike in
@@ -125,6 +127,6 @@ import AVFoundation
         obsActive = nil
         obsZoom = nil
         onChange = nil
-        lastIsMacroLike = false
+        lastIsMacroLike = nil
     }
 }
