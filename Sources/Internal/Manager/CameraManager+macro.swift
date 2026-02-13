@@ -30,6 +30,7 @@ import AVFoundation
     private var onChange: ((_ isMacroLike: Bool) -> Void)?
     private var debounceTask: Task<Void, Never>?
     private let macroOnDebounceNanoseconds: UInt64 = 700_000_000
+    private weak var observedDevice: AVCaptureDevice?
 
     func setup(parent: CameraManager, device: AVCaptureDevice) {
         stop()
@@ -47,6 +48,7 @@ import AVFoundation
     func start(device: AVCaptureDevice,
                onChange: @escaping (_ isMacroLike: Bool) -> Void) {
         self.onChange = onChange
+        self.observedDevice = device
 
         // Keep startup state deterministic; allow macro=true only after explicit confirmation.
         lastIsMacroLike = false
@@ -54,38 +56,39 @@ import AVFoundation
 
         // Use only .new (not .initial) so the KVO callbacks are only triggered by real
         // device changes, not by the observer registration itself.
-        obsActive = device.observe(\.activePrimaryConstituent, options: [.new]) { device, _ in
+        obsActive = device.observe(\.activePrimaryConstituent, options: [.new]) { _, _ in
             Task { @MainActor in
-                self.scheduleEmit(device)
+                self.scheduleEmit()
             }
         }
 
-        obsZoom = device.observe(\.videoZoomFactor, options: [.new]) { device, _ in
+        obsZoom = device.observe(\.videoZoomFactor, options: [.new]) { _, _ in
             Task { @MainActor in
-                self.scheduleEmit(device)
+                self.scheduleEmit()
             }
         }
 
         // Trigger an initial reconciliation pass once observers are installed.
-        scheduleEmit(device)
+        scheduleEmit()
     }
 
     /// Debounces macro=true so startup/lens-switch transients do not flash in UI.
-    private func scheduleEmit(_ device: AVCaptureDevice) {
+    private func scheduleEmit() {
         debounceTask?.cancel()
         debounceTask = Task { @MainActor in
-            let candidate = self.recomputeIsMacroLike(device)
+            let candidate = self.recomputeIsMacroLike()
             if candidate {
                 try? await Task.sleep(nanoseconds: macroOnDebounceNanoseconds)
             }
             guard !Task.isCancelled else { return }
 
             // Confirm using a fresh read to avoid emitting stale values.
-            let confirmed = self.recomputeIsMacroLike(device)
+            let confirmed = self.recomputeIsMacroLike()
             emitIfChanged(confirmed)
         }
     }
-    private func recomputeIsMacroLike(_ device: AVCaptureDevice) -> Bool {
+    private func recomputeIsMacroLike() -> Bool {
+        guard let device = observedDevice else { return false }
         guard device.isVirtualDeviceWithUltraWideCamera else { return false }
 
         guard let activeCamera = device.activePrimaryConstituent,
@@ -128,6 +131,7 @@ import AVFoundation
         obsActive = nil
         obsZoom = nil
         onChange = nil
+        observedDevice = nil
         lastIsMacroLike = nil
     }
 }
