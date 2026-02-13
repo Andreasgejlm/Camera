@@ -29,6 +29,7 @@ import AVFoundation
     private var lastIsMacroLike: Bool?
     private var onChange: ((_ isMacroLike: Bool) -> Void)?
     private var debounceTask: Task<Void, Never>?
+    private let macroOnDebounceNanoseconds: UInt64 = 700_000_000
 
     func setup(parent: CameraManager, device: AVCaptureDevice) {
         stop()
@@ -47,64 +48,64 @@ import AVFoundation
                onChange: @escaping (_ isMacroLike: Bool) -> Void) {
         self.onChange = onChange
 
-        func recompute() -> Bool {
-            guard device.isVirtualDeviceWithUltraWideCamera else { return false }
-
-            guard let activeCamera = device.activePrimaryConstituent,
-                  let ultraWideCamera = macroVideoDeviceDiscoverySession.backBuiltInUltraWideCamera else {
-                return false
-            }
-
-            let switchOverThreshold = device.virtualDeviceSwitchOverVideoZoomFactors.first.map { CGFloat(truncating: $0) } ?? 2.0
-            let zoomThreshold = max(2.0, switchOverThreshold)
-            let tolerance: CGFloat = 0.05
-
-            // Best-effort macro detection: virtual device has switched to ultra-wide
-            // while virtual zoom remains at/above the wide-camera switch-over point.
-            // We intentionally avoid checking ultra-wide's own videoZoomFactor because
-            // its value is in a different zoom domain than the virtual camera's.
-            return activeCamera.uniqueID == ultraWideCamera.uniqueID
-                && device.videoZoomFactor >= (zoomThreshold - tolerance)
-        }
-
-        // Compute and apply the initial state immediately (without relying on .initial KVO,
-        // which can fire before the session has fully stabilised and cause a spurious flash).
-        let initialValue = recompute()
-        lastIsMacroLike = initialValue
-        onChange(initialValue)
+        // Keep startup state deterministic; allow macro=true only after explicit confirmation.
+        lastIsMacroLike = false
+        onChange(false)
 
         // Use only .new (not .initial) so the KVO callbacks are only triggered by real
         // device changes, not by the observer registration itself.
         obsActive = device.observe(\.activePrimaryConstituent, options: [.new]) { device, _ in
             Task { @MainActor in
-                self.scheduleEmit(recompute())
+                self.scheduleEmit(device)
             }
         }
 
         obsZoom = device.observe(\.videoZoomFactor, options: [.new]) { device, _ in
             Task { @MainActor in
-                self.scheduleEmit(recompute())
+                self.scheduleEmit(device)
             }
         }
+
+        // Trigger an initial reconciliation pass once observers are installed.
+        scheduleEmit(device)
     }
 
-    /// Debounces macro-state changes by 500 ms.
-    ///
-    /// `activePrimaryConstituent` and `videoZoomFactor` are updated independently by
-    /// AVFoundation, so a single lens-switch produces two rapid KVO events.  Without
-    /// debouncing the observer can emit a spurious intermediate state (e.g. briefly
-    /// marking macro=true while the zoom is still settling after a wide→ultra-wide
-    /// switch).  The same transient behaviour occurs on startup and during
-    /// photo↔video mode changes that trigger a session reconfiguration.
-    private func scheduleEmit(_ newValue: Bool) {
+    /// Debounces macro=true so startup/lens-switch transients do not flash in UI.
+    private func scheduleEmit(_ device: AVCaptureDevice) {
         debounceTask?.cancel()
         debounceTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 500_000_000) // 500 ms
+            let candidate = self.recomputeIsMacroLike(device)
+            if candidate {
+                try? await Task.sleep(nanoseconds: macroOnDebounceNanoseconds)
+            }
             guard !Task.isCancelled else { return }
-            guard newValue != lastIsMacroLike else { return }
-            lastIsMacroLike = newValue
-            onChange?(newValue)
+
+            // Confirm using a fresh read to avoid emitting stale values.
+            let confirmed = self.recomputeIsMacroLike(device)
+            emitIfChanged(confirmed)
         }
+    }
+    private func recomputeIsMacroLike(_ device: AVCaptureDevice) -> Bool {
+        guard device.isVirtualDeviceWithUltraWideCamera else { return false }
+
+        guard let activeCamera = device.activePrimaryConstituent,
+              let ultraWideCamera = macroVideoDeviceDiscoverySession.backBuiltInUltraWideCamera else {
+            return false
+        }
+
+        let switchOverThreshold = device.virtualDeviceSwitchOverVideoZoomFactors.first.map { CGFloat(truncating: $0) } ?? 2.0
+        let zoomThreshold = max(2.0, switchOverThreshold)
+        let tolerance: CGFloat = 0.05
+
+        // Best-effort macro detection: virtual device has switched to ultra-wide
+        // while virtual zoom remains at/above the wide-camera switch-over point.
+        return activeCamera.uniqueID == ultraWideCamera.uniqueID
+            && device.videoZoomFactor >= (zoomThreshold - tolerance)
+    }
+    private func emitIfChanged(_ value: Bool) {
+        guard value != lastIsMacroLike else { return }
+        lastIsMacroLike = value
+        onChange?(value)
     }
 
     private func configureVirtualSwitchingIfSupported(_ device: AVCaptureDevice) {

@@ -542,12 +542,20 @@ extension CameraManager {
 
         await cameraMetalView.beginCameraFlipAnimation()
         try changeCameraInput(position)
-        resetAttributesWhenChangingCamera(position)
-        
-        if let device = getCameraInput()?.device {
+        attributes.cameraPosition = position
+
+        let device = getCameraInput()?.device
+        resetAttributes(device: device)
+
+        // While flip animation is running, setCameraZoomFactor() is blocked by `isChanging`.
+        // Apply default zoom directly so the newly selected camera starts from a stable baseline.
+        if let device {
             let defaultZoomFactor: CGFloat = getDefaultZoomFactor(of: device)
-            try? setCameraZoomFactor(defaultZoomFactor)
+            try? setDeviceZoomFactor(defaultZoomFactor, device)
+            attributes.zoomFactor = device.videoZoomFactor
         }
+
+        updateMacroObservation(position: position, device: device)
         
         await cameraMetalView.finishCameraFlipAnimation()
     }
@@ -557,10 +565,7 @@ private extension CameraManager {
         if let input = getCameraInput() { captureSession.remove(input: input) }
         try captureSession.add(input: getCameraInput(position))
     }
-    func resetAttributesWhenChangingCamera(_ position: CameraPosition) {
-        resetAttributes(device: getCameraInput(position)?.device)
-        let device = getCameraInput(position)?.device
-        
+    func updateMacroObservation(position: CameraPosition, device: (any CaptureDevice)?) {
         // Setup macro observer for back camera, stop for front camera
         if position == .back, let avDevice = device as? AVCaptureDevice {
             macroStateObserver.setup(parent: self, device: avDevice)
@@ -568,8 +573,6 @@ private extension CameraManager {
             macroStateObserver.stop()
             attributes.isMacroMode = false
         }
-        
-        attributes.cameraPosition = position
     }
 }
 
