@@ -173,6 +173,26 @@ extension CameraManagerTests {
         #expect(currentDevice.videoZoomFactor == currentDevice.maxAvailableVideoZoomFactor)
         #expect(cameraManager.attributes.zoomFactor == currentDevice.maxAvailableVideoZoomFactor)
     }
+
+    @Test("Ramp Zoom Clamps To Bounds") func rampZoomClampsToBounds() async throws {
+        try await setupCamera()
+
+        try cameraManager.rampZoom(to: 213.7)
+        #expect(currentDevice.videoZoomFactor == currentDevice.maxAvailableVideoZoomFactor)
+        #expect(cameraManager.attributes.zoomFactor == currentDevice.maxAvailableVideoZoomFactor)
+
+        try cameraManager.rampZoom(to: 0.2)
+        #expect(currentDevice.videoZoomFactor == currentDevice.minAvailableVideoZoomFactor)
+        #expect(cameraManager.attributes.zoomFactor == currentDevice.minAvailableVideoZoomFactor)
+    }
+
+    @Test("Ramp Zoom Publishes Clamped Target") func rampZoomPublishesClampedTarget() async throws {
+        try await setupCamera()
+
+        try cameraManager.rampZoom(to: 50)
+        #expect(cameraManager.attributes.zoomFactor == currentDevice.maxAvailableVideoZoomFactor)
+        #expect(cameraManager.attributes.zoomFactor != 50)
+    }
 }
 
 // MARK: Set Camera Focus

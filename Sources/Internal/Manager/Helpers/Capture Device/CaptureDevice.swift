@@ -60,13 +60,17 @@ protocol CaptureDevice: NSObject {
 
 // MARK: Set Zoom Factor
 extension CaptureDevice {
+    func clampedZoomFactor(for factor: CGFloat) -> CGFloat {
+        min(max(factor, minAvailableVideoZoomFactor), min(maxAvailableVideoZoomFactor, maxZoom))
+    }
+
     func setZoomFactor(_ factor: CGFloat) {
-        let factor = min(max(factor, minAvailableVideoZoomFactor), min(maxAvailableVideoZoomFactor, maxZoom))
+        let factor = clampedZoomFactor(for: factor)
         videoZoomFactor = factor
     }
     
     func rampZoom(to factor: CGFloat) {
-        let factor = min(max(factor, minAvailableVideoZoomFactor), min(maxAvailableVideoZoomFactor, maxZoom))
+        let factor = clampedZoomFactor(for: factor)
         cancelVideoZoomRamp()
         ramp(toVideoZoomFactor: factor, withRate: 5)
     }

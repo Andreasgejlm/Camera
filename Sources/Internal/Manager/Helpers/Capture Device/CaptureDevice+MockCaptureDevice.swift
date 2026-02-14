@@ -13,7 +13,7 @@ import AVKit
 
 class MockCaptureDevice: NSObject, CaptureDevice {
     func ramp(toVideoZoomFactor factor: CGFloat, withRate rate: Float) {
-        return
+        videoZoomFactor = factor
     }
     func cancelVideoZoomRamp() { return }
     

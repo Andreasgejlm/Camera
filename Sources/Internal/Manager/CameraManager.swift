@@ -85,6 +85,7 @@ extension CameraManager {
         // the session, so background audio is not interrupted.
         try? configureAudioSessionForRecording()
         try setupDeviceInputs()
+        configureCenterStageForManualZoomIfNeeded()
         try setupDeviceOutput()
         try setupFrameRecorder()
         notificationCenterManager.setup(parent: self)
@@ -284,6 +285,10 @@ private extension CameraManager {
         try await startCaptureSession()
         try setupDevice(device)
         resetAttributes(device: device)
+
+        if attributes.cameraPosition == .front, let avDevice = device as? AVCaptureDevice {
+            logFrontCameraZoomRuntimeState(avDevice, context: "startSession.frontActive")
+        }
         
         // Setup macro observer for back camera with AVCaptureDevice
         if attributes.cameraPosition == .back, let avDevice = device as? AVCaptureDevice {
@@ -295,6 +300,18 @@ private extension CameraManager {
     }}
 }
 private extension CameraManager {
+    func configureCenterStageForManualZoomIfNeeded() {
+        AVCaptureDevice.centerStageControlMode = .app
+        AVCaptureDevice.isCenterStageEnabled = false
+    }
+
+    func logFrontCameraZoomRuntimeState(_ device: AVCaptureDevice, context: String) {
+        #if DEBUG
+        guard device.position == .front else { return }
+        print("📷 FRONT ZOOM [\(context)] centerStageEnabled=\(AVCaptureDevice.isCenterStageEnabled) centerStageActive=\(device.isCenterStageActive) min=\(device.minAvailableVideoZoomFactor) max=\(device.maxAvailableVideoZoomFactor) formatMax=\(device.activeFormat.videoMaxZoomFactor) displayMultiplier=\(device.displayVideoZoomFactorMultiplier) current=\(device.videoZoomFactor)")
+        #endif
+    }
+
     private func getAudioInput() -> (any CaptureDeviceInput)? {
         guard let deviceInput = frontCameraInput ?? backCameraInput else { return nil }
         
@@ -547,12 +564,23 @@ extension CameraManager {
         let device = getCameraInput()?.device
         resetAttributes(device: device)
 
+        if position == .front {
+            configureCenterStageForManualZoomIfNeeded()
+            if let avDevice = device as? AVCaptureDevice {
+                logFrontCameraZoomRuntimeState(avDevice, context: "setCameraPosition.frontActivated")
+            }
+        }
+
         // While flip animation is running, setCameraZoomFactor() is blocked by `isChanging`.
         // Apply default zoom directly so the newly selected camera starts from a stable baseline.
         if let device {
             let defaultZoomFactor: CGFloat = getDefaultZoomFactor(of: device)
             try? setDeviceZoomFactor(defaultZoomFactor, device)
             attributes.zoomFactor = device.videoZoomFactor
+
+            if position == .front, let avDevice = device as? AVCaptureDevice {
+                logFrontCameraZoomRuntimeState(avDevice, context: "setCameraPosition.frontDefaultZoomApplied")
+            }
         }
 
         updateMacroObservation(position: position, device: device)
@@ -583,14 +611,26 @@ extension CameraManager {
 
         try setDeviceZoomFactor(zoomFactor, device)
         attributes.zoomFactor = device.videoZoomFactor
+
+        if attributes.cameraPosition == .front, let avDevice = device as? AVCaptureDevice {
+            logFrontCameraZoomRuntimeState(avDevice, context: "setCameraZoomFactor")
+        }
     }
     
     func rampZoom(to zoomFactor: CGFloat) throws {
-        guard let device = getCameraInput()?.device, zoomFactor != attributes.zoomFactor, !isChanging, !isPerformingFormatTransition else { return }
+        guard let device = getCameraInput()?.device, !isChanging, !isPerformingFormatTransition else { return }
+
+        let clampedTarget = device.clampedZoomFactor(for: zoomFactor)
+        guard clampedTarget != attributes.zoomFactor else { return }
+
         try device.lockForConfiguration()
-        device.rampZoom(to: zoomFactor)
-        attributes.zoomFactor = zoomFactor
+        device.rampZoom(to: clampedTarget)
+        attributes.zoomFactor = clampedTarget
         device.unlockForConfiguration()
+
+        if attributes.cameraPosition == .front, let avDevice = device as? AVCaptureDevice {
+            logFrontCameraZoomRuntimeState(avDevice, context: "rampZoom")
+        }
     }
 }
 private extension CameraManager {
