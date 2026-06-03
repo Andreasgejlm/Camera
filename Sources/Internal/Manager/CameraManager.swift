@@ -251,6 +251,15 @@ private extension CameraManager {
         try captureSession.add(input: getCameraInput())
         // Audio input is NOT added here — it is deferred to recording start
         // to avoid activating the audio session and interrupting background audio
+
+        // Publish the default zoom factor synchronously, before the preview renders.
+        // Otherwise `zoomFactor` stays at its 1.0 default — the lowest lens, which the
+        // display multiplier renders as "0.5×" — until `setupDevice` applies the default
+        // lens inside the async `startSession` Task. That gap makes the zoom indicator
+        // flash 0.5× then snap to 1.0× on launch.
+        if let device = getCameraInput()?.device {
+            attributes.zoomFactor = getDefaultZoomFactor(of: device)
+        }
     }
     func setupDeviceOutput() throws(MCameraError) {
         try photoOutput.setup(parent: self)
