@@ -48,6 +48,10 @@ extension AVCaptureSession {
 extension AVCaptureSession {
     func add(output: AVCaptureOutput?) throws(MCameraError) {
         guard let output else { throw .cannotSetupOutput }
+
+        beginConfiguration()
+        defer { commitConfiguration() }
+
         if canAddOutput(output) { addOutput(output) }
     }
 }

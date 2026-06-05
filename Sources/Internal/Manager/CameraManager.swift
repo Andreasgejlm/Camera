@@ -294,6 +294,7 @@ private extension CameraManager {
         guard let device = getCameraInput()?.device else { return }
 
         try await startCaptureSession()
+        reconfigureSessionIfNeeded()
         try setupDevice(device)
         resetAttributes(device: device)
 
@@ -311,6 +312,11 @@ private extension CameraManager {
     }}
 }
 private extension CameraManager {
+    func reconfigureSessionIfNeeded() {
+        guard let session = captureSession as? AVCaptureSession, session.isRunning else { return }
+        session.beginConfiguration()
+        session.commitConfiguration()
+    }
     func configureCenterStageForManualZoomIfNeeded() {
         AVCaptureDevice.centerStageControlMode = .app
         AVCaptureDevice.isCenterStageEnabled = false
