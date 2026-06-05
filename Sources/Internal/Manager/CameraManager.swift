@@ -196,7 +196,7 @@ private extension CameraManager {
     
     func setupCameraLayer() {
         captureSession.sessionPreset = attributes.resolution
-
+        
         #if !DEBUG && !targetEnvironment(simulator)
         dumpFormats(position: .back, deviceType: .builtInTripleCamera)
         dumpVideoAndPhotoRes(position: .back, deviceTypes: [.builtInTripleCamera])
@@ -211,9 +211,7 @@ private extension CameraManager {
         cameraLayer.session = captureSession as? AVCaptureSession
         cameraLayer.videoGravity = .resizeAspectFill
         cameraLayer.isHidden = true
-        if cameraLayer.superlayer == nil {
-            cameraView.layer.addSublayer(cameraLayer)
-        }
+        cameraView.layer.addSublayer(cameraLayer)
         
         #if targetEnvironment(simulator)
         // Add a placeholder view for DEBUG/simulator mode
@@ -286,7 +284,7 @@ private extension CameraManager {
         
         // Only animate if cameraView is set
         if cameraView != nil {
-            cameraMetalView.performCameraEntranceAnimationIfNeeded()
+            cameraMetalView.performCameraEntranceAnimation()
         } else {
             print("📷 DEBUG MODE: cameraView not initialized, skipping entrance animation")
         }
@@ -306,8 +304,8 @@ private extension CameraManager {
         if attributes.cameraPosition == .back, let avDevice = device as? AVCaptureDevice {
             macroStateObserver.setup(parent: self, device: avDevice)
         }
-
-        cameraMetalView.performCameraEntranceAnimationIfNeeded()
+        
+        cameraMetalView.performCameraEntranceAnimation()
         #endif
     }}
 }
