@@ -313,15 +313,6 @@ private extension CameraManager {
 }
 private extension CameraManager {
     func reconfigureSessionIfNeeded() {
-        guard let session = captureSession as? AVCaptureSession, session.isRunning else { return }
-        let target = attributes.resolution
-        let temporary: AVCaptureSession.Preset = (target == .photo) ? .high : .photo
-        session.beginConfiguration()
-        session.sessionPreset = temporary
-        session.commitConfiguration()
-        session.beginConfiguration()
-        session.sessionPreset = target
-        session.commitConfiguration()
     }
     func configureCenterStageForManualZoomIfNeeded() {
         AVCaptureDevice.centerStageControlMode = .app
@@ -438,12 +429,26 @@ extension CameraManager {
         clearCurrentCapturedLivePhotoIfNeeded()
         removeAudioInput()
         deactivateAudioSession()
+        detachReusedSessionObjects()
         captureSession = captureSession.stopRunningAndReturnNewInstance()
         motionManager.reset()
         videoOutput.reset()
         notificationCenterManager.reset()
         macroStateObserver.stop()
         attributes.isMacroMode = false
+    }
+}
+private extension CameraManager {
+    func detachReusedSessionObjects() {
+        guard let session = captureSession as? AVCaptureSession else { return }
+        session.beginConfiguration()
+        if let input = getCameraInput() as? AVCaptureDeviceInput {
+            session.removeInput(input)
+        }
+        for output in session.outputs {
+            session.removeOutput(output)
+        }
+        session.commitConfiguration()
     }
 }
 
