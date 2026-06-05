@@ -314,7 +314,13 @@ private extension CameraManager {
 private extension CameraManager {
     func reconfigureSessionIfNeeded() {
         guard let session = captureSession as? AVCaptureSession, session.isRunning else { return }
+        let target = attributes.resolution
+        let temporary: AVCaptureSession.Preset = (target == .photo) ? .high : .photo
         session.beginConfiguration()
+        session.sessionPreset = temporary
+        session.commitConfiguration()
+        session.beginConfiguration()
+        session.sessionPreset = target
         session.commitConfiguration()
     }
     func configureCenterStageForManualZoomIfNeeded() {
