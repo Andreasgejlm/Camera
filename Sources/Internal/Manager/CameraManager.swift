@@ -1092,12 +1092,27 @@ extension CameraManager {
         await animateBlur()
 
         // Step 4: Perform format change behind the blurred overlay
+        let extentBeforeChange = cameraMetalView.currentFrame?.extent
         try await formatChange()
-        
-        // Step 5: Wait for format change to settle
-        try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-        
+
+        // Step 5: Wait until a frame in the new format has actually been rendered.
+        // A fixed delay races the session: the first new-format frame can take a few
+        // hundred ms to arrive and also forces a Metal drawable resize, so unblurring
+        // on a timer could reveal the preview mid drawable-swap (black flash).
+        await waitForFirstFrameAfterFormatChange(previousExtent: extentBeforeChange)
+
         // Step 6: Animate unblur and fade out, revealing updated camera view
         await animateUnblurAndFadeOut()
+    }
+
+    /// Polls until the preview renders a frame whose dimensions differ from the
+    /// pre-change frame (the new format), with a timeout in case the format change
+    /// produced identically-sized buffers or frames never resume.
+    private func waitForFirstFrameAfterFormatChange(previousExtent: CGRect?) async {
+        let deadline = ContinuousClock.now + .seconds(1)
+        while ContinuousClock.now < deadline {
+            if let extent = cameraMetalView.currentFrame?.extent, extent.size != previousExtent?.size { return }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
     }
 }
