@@ -1056,14 +1056,14 @@ extension CameraManager {
         guard let overlayView = transitionOverlayView else { return }
         
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            UIView.animate(withDuration: 0.3, animations: {
+            UIView.animate(withDuration: 0.25, animations: {
                 // Remove blur effect
                 if let blurView = overlayView.subviews.first(where: { $0 is UIVisualEffectView }) as? UIVisualEffectView {
                     blurView.effect = nil
                 }
             }) { _ in
                 // Fade out the entire overlay - no need to manipulate camera view alpha
-                UIView.animate(withDuration: 0.2, animations: {
+                UIView.animate(withDuration: 0.15, animations: {
                     overlayView.alpha = 0
                 }) { _ in
                     continuation.resume()
@@ -1096,12 +1096,15 @@ extension CameraManager {
         // Step 2: Create overlay at parent level and hide camera view
         createTransitionOverlay(with: previewImage)
 
-        // Step 3: Animate blur
-        await animateBlur()
-
-        // Step 4: Perform format change behind the blurred overlay
+        // Steps 3+4 run concurrently: the preset change executes off the main thread
+        // while the blur animates in. The change's first visible effect — the first
+        // new-format frame — takes longer than the blur-in to arrive, so the blur is
+        // up before anything changes on screen, and the transition saves the time it
+        // previously spent blurring and reconfiguring sequentially.
         let extentBeforeChange = cameraMetalView.currentFrame?.extent
+        let blurIn = Task { await self.animateBlur() }
         try await formatChange()
+        await blurIn.value
 
         // Step 5: Wait until a frame in the new format has actually been rendered.
         // A fixed delay races the session: the first new-format frame can take a few
@@ -1112,11 +1115,12 @@ extension CameraManager {
         // Step 6: Work that must run on the fully-reconfigured session (zoom reset)
         try afterFramesResume()
 
-        // Step 7: Hold the blur while the device finishes settling. On multi-lens
-        // devices the first resumed frame is not the end of the story: the virtual
-        // device may still switch its active constituent lens and re-converge
-        // exposure, which shows as a black blink and a perspective snap if revealed.
-        try? await Task.sleep(nanoseconds: 400_000_000)
+        // Step 7: Hold the blur briefly while the device finishes settling. On
+        // multi-lens devices the first resumed frame is not the end of the story:
+        // the virtual device may still switch its active constituent lens and
+        // re-converge exposure, which shows as a black blink and a perspective snap
+        // if revealed. The gradual unblur in step 8 masks the tail end of this.
+        try? await Task.sleep(nanoseconds: 200_000_000)
 
         // Step 8: Animate unblur and fade out, revealing updated camera view
         await animateUnblurAndFadeOut()
@@ -1129,7 +1133,7 @@ extension CameraManager {
         let deadline = ContinuousClock.now + .seconds(1)
         while ContinuousClock.now < deadline {
             if let extent = cameraMetalView.currentFrame?.extent, extent.size != previousExtent?.size { return }
-            try? await Task.sleep(nanoseconds: 50_000_000)
+            try? await Task.sleep(nanoseconds: 16_000_000)
         }
     }
 }
