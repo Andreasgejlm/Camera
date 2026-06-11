@@ -84,6 +84,12 @@ extension CameraManager {
         // This only sets the category — it does NOT add the mic input or activate
         // the session, so background audio is not interrupted.
         try? configureAudioSessionForRecording()
+        // Prevent AVFoundation from reconfiguring the audio session when the mic
+        // input becomes active at recording time — its automatic configuration uses
+        // a non-mixable category that pauses other apps' audio (speaker and
+        // headphones). We manage the mixable session ourselves instead: category
+        // above, activation when recording starts.
+        (captureSession as? AVCaptureSession)?.automaticallyConfiguresApplicationAudioSession = false
         try setupDeviceInputs()
         configureCenterStageForManualZoomIfNeeded()
         try setupDeviceOutput()

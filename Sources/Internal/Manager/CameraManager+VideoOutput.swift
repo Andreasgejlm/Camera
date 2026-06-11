@@ -80,7 +80,13 @@ extension CameraManagerVideoOutput {
         let recorder = self
 
         Task.detached(priority: .userInitiated) {
-            if let input = audioInput.value { try? session.add(input: input) }
+            if let input = audioInput.value {
+                // Automatic audio session configuration is disabled (it would swap
+                // in a non-mixable category and pause other apps' audio), so the
+                // mixable session must be activated manually for the mic to record.
+                try? AVAudioSession.sharedInstance().setActive(true)
+                try? session.add(input: input)
+            }
             await recorder.beginRecording(to: url)
         }
         #endif
