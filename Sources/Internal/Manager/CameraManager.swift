@@ -863,7 +863,7 @@ extension CameraManager {
             guard targetResolution != attributes.resolution else { continue }
 
             try await performFormatTransition {
-                self.captureSession.sessionPreset = targetResolution
+                await self.applySessionPresetOffMain(targetResolution)
                 self.attributes.resolution = targetResolution
                 if let device = self.getCameraInput()?.device {
                     let defaultZoomFactor: CGFloat = self.getDefaultZoomFactor(of: device)
@@ -879,6 +879,33 @@ private extension CameraManager {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
     }
+
+    /// Changing the preset of a running session blocks the calling thread while
+    /// AVFoundation rebuilds the capture pipeline (hundreds of ms). On the main
+    /// thread that freezes any in-flight SwiftUI layout animation (e.g. the
+    /// viewfinder aspect-ratio resize), which then jumps to its end state when
+    /// the thread unblocks. Hopping to a background queue keeps the main thread
+    /// free to drive the animation while the format changes behind the blur.
+    func applySessionPresetOffMain(_ preset: AVCaptureSession.Preset) async {
+        guard let session = captureSession as? AVCaptureSession else {
+            captureSession.sessionPreset = preset
+            return
+        }
+
+        let box = UncheckedSendableBox(value: session)
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                box.value.sessionPreset = preset
+                continuation.resume()
+            }
+        }
+    }
+}
+
+/// AVCaptureSession is internally synchronized for configuration but not marked
+/// Sendable; this box carries it across the hop to the configuration queue.
+private struct UncheckedSendableBox<Value>: @unchecked Sendable {
+    let value: Value
 }
 
 // MARK: Set Frame Rate
@@ -1044,28 +1071,28 @@ extension CameraManager {
     }
     
     /// Performs the complete format transition animation sequence
-    private func performFormatTransition(formatChange: @escaping () throws -> Void) async throws {
+    private func performFormatTransition(formatChange: @MainActor @escaping () async throws -> Void) async throws {
         guard !isPerformingFormatTransition else { return }
         isPerformingFormatTransition = true
-        
+
         defer { isPerformingFormatTransition = false }
-        
+
         // Step 1: Capture current preview
         guard let previewImage = captureCurrentPreview() else {
             // If we cannot capture a snapshot for the visual transition,
             // still apply the format change to keep camera state consistent.
-            try formatChange()
+            try await formatChange()
             return
         }
-        
+
         // Step 2: Create overlay at parent level and hide camera view
         createTransitionOverlay(with: previewImage)
-        
+
         // Step 3: Animate blur
         await animateBlur()
-        
+
         // Step 4: Perform format change behind the blurred overlay
-        try formatChange()
+        try await formatChange()
         
         // Step 5: Wait for format change to settle
         try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
