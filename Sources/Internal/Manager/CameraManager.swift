@@ -865,6 +865,10 @@ extension CameraManager {
             try await performFormatTransition {
                 await self.applySessionPresetOffMain(targetResolution)
                 self.attributes.resolution = targetResolution
+            } afterFramesResume: {
+                // Applied only once frames flow at the new format — setting the zoom
+                // while the session is still reconfiguring lets the reconfiguration
+                // override it, leaving the wrong lens/perspective visible.
                 if let device = self.getCameraInput()?.device {
                     let defaultZoomFactor: CGFloat = self.getDefaultZoomFactor(of: device)
                     try? self.setCameraZoomFactor(defaultZoomFactor)
@@ -1071,7 +1075,10 @@ extension CameraManager {
     }
     
     /// Performs the complete format transition animation sequence
-    private func performFormatTransition(formatChange: @MainActor @escaping () async throws -> Void) async throws {
+    private func performFormatTransition(
+        formatChange: @MainActor @escaping () async throws -> Void,
+        afterFramesResume: @MainActor @escaping () throws -> Void = {}
+    ) async throws {
         guard !isPerformingFormatTransition else { return }
         isPerformingFormatTransition = true
 
@@ -1082,6 +1089,7 @@ extension CameraManager {
             // If we cannot capture a snapshot for the visual transition,
             // still apply the format change to keep camera state consistent.
             try await formatChange()
+            try afterFramesResume()
             return
         }
 
@@ -1101,7 +1109,16 @@ extension CameraManager {
         // on a timer could reveal the preview mid drawable-swap (black flash).
         await waitForFirstFrameAfterFormatChange(previousExtent: extentBeforeChange)
 
-        // Step 6: Animate unblur and fade out, revealing updated camera view
+        // Step 6: Work that must run on the fully-reconfigured session (zoom reset)
+        try afterFramesResume()
+
+        // Step 7: Hold the blur while the device finishes settling. On multi-lens
+        // devices the first resumed frame is not the end of the story: the virtual
+        // device may still switch its active constituent lens and re-converge
+        // exposure, which shows as a black blink and a perspective snap if revealed.
+        try? await Task.sleep(nanoseconds: 400_000_000)
+
+        // Step 8: Animate unblur and fade out, revealing updated camera view
         await animateUnblurAndFadeOut()
     }
 
