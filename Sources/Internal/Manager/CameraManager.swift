@@ -85,11 +85,18 @@ extension CameraManager {
         // the session, so background audio is not interrupted.
         try? configureAudioSessionForRecording()
         // Prevent AVFoundation from reconfiguring the audio session when the mic
-        // input becomes active at recording time — its automatic configuration uses
-        // a non-mixable category that pauses other apps' audio (speaker and
-        // headphones). We manage the mixable session ourselves instead: category
-        // above, activation when recording starts.
+        // input becomes active — its automatic configuration uses a non-mixable
+        // category that pauses other apps' audio (speaker and headphones). We
+        // manage the mixable session ourselves: category above, activation below.
         (captureSession as? AVCaptureSession)?.automaticallyConfiguresApplicationAudioSession = false
+        // With automatic configuration off, nothing else activates the audio
+        // session, and an inactive session means a silent mic. Activating a
+        // mixable session does not interrupt other apps' audio. Done off the main
+        // thread because activation is a blocking call and preview sample buffers
+        // are delivered on the main queue.
+        Task.detached(priority: .userInitiated) {
+            try? AVAudioSession.sharedInstance().setActive(true)
+        }
         try setupDeviceInputs()
         configureCenterStageForManualZoomIfNeeded()
         try setupDeviceOutput()
@@ -255,8 +262,13 @@ private extension CameraManager {
     #endif
     func setupDeviceInputs() throws(MCameraError) {
         try captureSession.add(input: getCameraInput())
-        // Audio input is NOT added here — it is deferred to recording start
-        // to avoid activating the audio session and interrupting background audio
+        // The mic input is attached here, before the session starts running.
+        // Attaching it later (at recording time) commits a topology change to a
+        // running session, which makes AVFoundation rebuild the capture pipeline —
+        // visible as a frame gap and an exposure dip on the preview. Background
+        // audio is safe because automatic audio session configuration is disabled
+        // and the app's audio session category is mixable.
+        try? attachAudioInput()
 
         // Publish the default zoom factor synchronously, before the preview renders.
         // Otherwise `zoomFactor` stays at its 1.0 default — the lowest lens, which the
@@ -384,19 +396,17 @@ extension CameraManager {
         }
     }
 
-    /// Resolves the mic input and registers it as attached, without touching the
-    /// running session. The caller is responsible for attaching the returned input
-    /// via `captureSession.add(input:)` — off the main thread, because committing
-    /// that change activates the audio session (a blocking call) while preview
-    /// sample buffers are delivered on the main queue, so a stalled main thread
-    /// blanks the viewfinder.
-    func claimAudioInputForRecording() -> (any CaptureDeviceInput)? {
-        guard attributes.isAudioSourceAvailable else { return nil }
-        guard audioInput == nil else { return nil } // Already added
-        guard let input = getAudioInput() else { return nil }
+    /// Attaches the mic input to the session. Must only be called while the session
+    /// is being configured (not running) — see the comment in `setupDeviceInputs`.
+    func attachAudioInput() throws(MCameraError) {
+        guard attributes.isAudioSourceAvailable else { return }
+        guard audioInput == nil else { return } // Already added
+        guard let input = getAudioInput() else {
+            throw MCameraError.failedToSetupAudioInput
+        }
 
+        try captureSession.add(input: input)
         self.audioInput = input
-        return input
     }
 
     func removeAudioInput() {

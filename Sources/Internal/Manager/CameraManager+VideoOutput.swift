@@ -13,18 +13,12 @@
 import SwiftUI
 import MijickTimer
 
-/// `CaptureDeviceInput` isn't Sendable; the boxed value is created on the main actor
-/// and handed exclusively to the session-mutation task that attaches it.
-private struct UncheckedSendableBox<Value>: @unchecked Sendable { let value: Value }
-
 @MainActor class CameraManagerVideoOutput: NSObject {
     private(set) var parent: CameraManager!
     private(set) var output: AVCaptureMovieFileOutput = .init()
     private(set) var timer: MTimer = .init(.camera)
     private(set) var recordingTime: MTime = .zero
     private(set) var firstRecordedFrame: UIImage?
-    private var isPreparingToRecord: Bool = false
-    private var stopRequestedWhilePreparing: Bool = false
 }
 
 // MARK: Setup
@@ -58,7 +52,7 @@ extension CameraManagerVideoOutput {
 // MARK: Start Recording
 extension CameraManagerVideoOutput {
     func startRecording() {
-        guard !isRecording, !isPreparingToRecord else { return }
+        guard !isRecording else { return }
 
         #if targetEnvironment(simulator)
         // Mock recording for DEBUG/simulator mode
@@ -66,47 +60,15 @@ extension CameraManagerVideoOutput {
         #else
         guard let url = prepareUrlForVideoRecording() else { return }
 
-        // The mic input is added only at recording time so the camera doesn't pause
-        // background audio while idle. Committing that change to the running session
-        // activates the audio session — a blocking call that stalls the main thread
-        // long enough to hitch UI animations and starve the preview (sample buffers
-        // are delivered on the main queue, so a stalled main thread blanks the
-        // viewfinder). Attach the input off the main thread, then start the actual
-        // recording back on the main actor.
-        isPreparingToRecord = true
-        stopRequestedWhilePreparing = false
-        let session = parent.captureSession
-        let audioInput = UncheckedSendableBox(value: parent.claimAudioInputForRecording())
-        let recorder = self
-
-        Task.detached(priority: .userInitiated) {
-            if let input = audioInput.value {
-                // Automatic audio session configuration is disabled (it would swap
-                // in a non-mixable category and pause other apps' audio), so the
-                // mixable session must be activated manually for the mic to record.
-                try? AVAudioSession.sharedInstance().setActive(true)
-                try? session.add(input: input)
-            }
-            await recorder.beginRecording(to: url)
-        }
-        #endif
-    }
-
-    /// Second half of `startRecording()`, run on the main actor once the mic input
-    /// has been attached. Skips starting if a stop was requested in the meantime.
-    private func beginRecording(to url: URL) {
-        isPreparingToRecord = false
-        guard !stopRequestedWhilePreparing else {
-            stopRequestedWhilePreparing = false
-            parent.removeAudioInput()
-            return
-        }
-        guard !isRecording else { return }
-
+        // No session/device work happens here — the mic input was attached during
+        // setup and the audio session activated then. Any topology change on the
+        // running session at this point makes AVFoundation rebuild the capture
+        // pipeline, which shows as a frame gap and an exposure dip on the preview.
         configureOutput()
         output.startRecording(to: url, recordingDelegate: self)
         startRecordingTimer()
         parent.objectWillChange.send()
+        #endif
     }
     
     #if targetEnvironment(simulator)
@@ -152,7 +114,6 @@ extension CameraManagerVideoOutput {
         #if targetEnvironment(simulator)
         stopMockRecording()
         #else
-        if isPreparingToRecord { stopRequestedWhilePreparing = true }
         output.stopRecording()
         #endif
         timer.reset()
@@ -192,8 +153,11 @@ extension CameraManagerVideoOutput: @preconcurrency AVCaptureFileOutputRecording
                 }
             }
             
-            // Remove audio input so the mic is released and background audio can resume
-            parent.removeAudioInput()
+            // The mic input stays attached for the session's lifetime — detaching it
+            // here would rebuild the running pipeline (frame gap + exposure dip on
+            // the preview). It is released in CameraManager.cancel() when the camera
+            // disappears; background audio keeps playing regardless because the
+            // audio session is mixable and automatic configuration is disabled.
 
             do {
                 let videoURL = try await prepareVideo(
