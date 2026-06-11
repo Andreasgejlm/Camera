@@ -378,19 +378,19 @@ extension CameraManager {
         }
     }
 
-    func addAudioInput() throws(MCameraError) {
-        guard attributes.isAudioSourceAvailable else { return }
-        guard audioInput == nil else { return } // Already added
+    /// Resolves the mic input and registers it as attached, without touching the
+    /// running session. The caller is responsible for attaching the returned input
+    /// via `captureSession.add(input:)` — off the main thread, because committing
+    /// that change activates the audio session (a blocking call) while preview
+    /// sample buffers are delivered on the main queue, so a stalled main thread
+    /// blanks the viewfinder.
+    func claimAudioInputForRecording() -> (any CaptureDeviceInput)? {
+        guard attributes.isAudioSourceAvailable else { return nil }
+        guard audioInput == nil else { return nil } // Already added
+        guard let input = getAudioInput() else { return nil }
 
-        // Configure audio session for recording
-
-        // Get and add audio input
-        guard let input = getAudioInput() else {
-            throw MCameraError.failedToSetupAudioInput
-        }
-
-        try captureSession.add(input: input)
         self.audioInput = input
+        return input
     }
 
     func removeAudioInput() {

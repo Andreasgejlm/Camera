@@ -13,12 +13,18 @@
 import SwiftUI
 import MijickTimer
 
+/// `CaptureDeviceInput` isn't Sendable; the boxed value is created on the main actor
+/// and handed exclusively to the session-mutation task that attaches it.
+private struct UncheckedSendableBox<Value>: @unchecked Sendable { let value: Value }
+
 @MainActor class CameraManagerVideoOutput: NSObject {
     private(set) var parent: CameraManager!
     private(set) var output: AVCaptureMovieFileOutput = .init()
     private(set) var timer: MTimer = .init(.camera)
     private(set) var recordingTime: MTime = .zero
     private(set) var firstRecordedFrame: UIImage?
+    private var isPreparingToRecord: Bool = false
+    private var stopRequestedWhilePreparing: Bool = false
 }
 
 // MARK: Setup
@@ -52,7 +58,7 @@ extension CameraManagerVideoOutput {
 // MARK: Start Recording
 extension CameraManagerVideoOutput {
     func startRecording() {
-        guard !isRecording else { return }
+        guard !isRecording, !isPreparingToRecord else { return }
 
         #if targetEnvironment(simulator)
         // Mock recording for DEBUG/simulator mode
@@ -60,16 +66,41 @@ extension CameraManagerVideoOutput {
         #else
         guard let url = prepareUrlForVideoRecording() else { return }
 
-        // Add mic input only at recording time — the audio session category
-        // was already set during setup() with .mixWithOthers, so activating
-        // the session here won't interrupt background audio
-        try? parent.addAudioInput()
+        // The mic input is added only at recording time so the camera doesn't pause
+        // background audio while idle. Committing that change to the running session
+        // activates the audio session — a blocking call that stalls the main thread
+        // long enough to hitch UI animations and starve the preview (sample buffers
+        // are delivered on the main queue, so a stalled main thread blanks the
+        // viewfinder). Attach the input off the main thread, then start the actual
+        // recording back on the main actor.
+        isPreparingToRecord = true
+        stopRequestedWhilePreparing = false
+        let session = parent.captureSession
+        let audioInput = UncheckedSendableBox(value: parent.claimAudioInputForRecording())
+        let recorder = self
+
+        Task.detached(priority: .userInitiated) {
+            if let input = audioInput.value { try? session.add(input: input) }
+            await recorder.beginRecording(to: url)
+        }
+        #endif
+    }
+
+    /// Second half of `startRecording()`, run on the main actor once the mic input
+    /// has been attached. Skips starting if a stop was requested in the meantime.
+    private func beginRecording(to url: URL) {
+        isPreparingToRecord = false
+        guard !stopRequestedWhilePreparing else {
+            stopRequestedWhilePreparing = false
+            parent.removeAudioInput()
+            return
+        }
+        guard !isRecording else { return }
 
         configureOutput()
         output.startRecording(to: url, recordingDelegate: self)
         startRecordingTimer()
         parent.objectWillChange.send()
-        #endif
     }
     
     #if targetEnvironment(simulator)
@@ -115,6 +146,7 @@ extension CameraManagerVideoOutput {
         #if targetEnvironment(simulator)
         stopMockRecording()
         #else
+        if isPreparingToRecord { stopRequestedWhilePreparing = true }
         output.stopRecording()
         #endif
         timer.reset()
