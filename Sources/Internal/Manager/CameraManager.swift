@@ -704,17 +704,26 @@ private extension CameraManager {
         device.setExposurePointOfInterest(focusPoint)
         device.isSubjectAreaChangeMonitoringEnabled = true
         device.unlockForConfiguration()
+        print("🎯 TAP focus set at \(focusPoint) | focusMode=\(device.focusMode.rawValue) monitoring=\(device.isSubjectAreaChangeMonitoringEnabled) focusPOISupported=\(device.isFocusPointOfInterestSupported)")
     }
 }
 
 // MARK: Reset Camera Focus
 extension CameraManager {
     func resetCameraFocusToContinuousAutoFocus() {
-        guard let device = getCameraInput()?.device, device.isSubjectAreaChangeMonitoringEnabled else { return }
+        guard let device = getCameraInput()?.device else {
+            print("🎯 RESET skipped: no camera input device")
+            return
+        }
+        guard device.isSubjectAreaChangeMonitoringEnabled else {
+            print("🎯 RESET skipped: monitoring already off (focusMode=\(device.focusMode.rawValue))")
+            return
+        }
 
         try? device.lockForConfiguration()
         device.resetFocusToContinuousAutoFocus()
         device.unlockForConfiguration()
+        print("🎯 RESET to continuousAutoFocus | focusMode=\(device.focusMode.rawValue) monitoring=\(device.isSubjectAreaChangeMonitoringEnabled)")
     }
 }
 

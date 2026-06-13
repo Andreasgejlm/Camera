@@ -30,7 +30,8 @@ private extension CameraManagerNotificationCenter {
         parent.videoOutput.reset()
     }
     @objc func handleSubjectAreaDidChange() {
-        parent.resetCameraFocusToContinuousAutoFocus()
+        print("🎯 subjectAreaDidChange NOTIFICATION received (thread isMain=\(Thread.isMainThread))")
+        Task { @MainActor in parent.resetCameraFocusToContinuousAutoFocus() }
     }
 }
 
