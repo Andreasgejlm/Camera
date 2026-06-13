@@ -47,11 +47,13 @@ class MockCaptureDevice: NSObject, CaptureDevice {
     var activeVideoMaxFrameDuration: CMTime = .init()
     var exposureMode: AVCaptureDevice.ExposureMode = .continuousAutoExposure
     var hdrMode: CameraHDRMode = .auto
+    var isSubjectAreaChangeMonitoringEnabled: Bool = false
 
     // MARK: Methods
     func lockForConfiguration() throws { return }
     func unlockForConfiguration() { return }
     func isExposureModeSupported(_ exposureMode: AVCaptureDevice.ExposureMode) -> Bool { true }
+    func isFocusModeSupported(_ focusMode: AVCaptureDevice.FocusMode) -> Bool { true }
     func setExposureModeCustom(duration: CMTime, iso: Float, completionHandler: ((CMTime) -> Void)?) {
         _exposureDuration = duration
         _iso = iso

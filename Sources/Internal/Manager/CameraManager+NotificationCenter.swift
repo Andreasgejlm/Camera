@@ -9,6 +9,7 @@
 //  Copyright ©2024 Mijick. All rights reserved.
 
 
+import AVKit
 import Foundation
 
 @MainActor class CameraManagerNotificationCenter {
@@ -20,6 +21,7 @@ extension CameraManagerNotificationCenter {
     func setup(parent: CameraManager) {
         self.parent = parent
         NotificationCenter.default.addObserver(self, selector: #selector(handleSessionWasInterrupted), name: .AVCaptureSessionWasInterrupted, object: parent.captureSession)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSubjectAreaDidChange), name: .AVCaptureDeviceSubjectAreaDidChange, object: nil)
     }
 }
 private extension CameraManagerNotificationCenter {
@@ -27,11 +29,15 @@ private extension CameraManagerNotificationCenter {
         parent.attributes.lightMode = .off
         parent.videoOutput.reset()
     }
+    @objc func handleSubjectAreaDidChange() {
+        parent.resetCameraFocusToContinuousAutoFocus()
+    }
 }
 
 // MARK: Reset
 extension CameraManagerNotificationCenter {
     func reset() {
         NotificationCenter.default.removeObserver(self, name: .AVCaptureSessionWasInterrupted, object: parent?.captureSession)
+        NotificationCenter.default.removeObserver(self, name: .AVCaptureDeviceSubjectAreaDidChange, object: nil)
     }
 }

@@ -702,6 +702,18 @@ private extension CameraManager {
         try device.lockForConfiguration()
         device.setFocusPointOfInterest(focusPoint)
         device.setExposurePointOfInterest(focusPoint)
+        device.isSubjectAreaChangeMonitoringEnabled = true
+        device.unlockForConfiguration()
+    }
+}
+
+// MARK: Reset Camera Focus
+extension CameraManager {
+    func resetCameraFocusToContinuousAutoFocus() {
+        guard let device = getCameraInput()?.device, device.isSubjectAreaChangeMonitoringEnabled else { return }
+
+        try? device.lockForConfiguration()
+        device.resetFocusToContinuousAutoFocus()
         device.unlockForConfiguration()
     }
 }

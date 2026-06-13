@@ -33,6 +33,9 @@ protocol CaptureDevice: NSObject {
     var isFocusPointOfInterestSupported: Bool { get }
 
     // MARK: Getters & Setters
+    var isSubjectAreaChangeMonitoringEnabled: Bool { get set }
+
+    // MARK: Getters & Setters
     var videoZoomFactor: CGFloat { get set }
     var focusMode: AVCaptureDevice.FocusMode { get set }
     var focusPointOfInterest: CGPoint { get set }
@@ -47,6 +50,7 @@ protocol CaptureDevice: NSObject {
     func lockForConfiguration() throws
     func unlockForConfiguration()
     func isExposureModeSupported(_ exposureMode: AVCaptureDevice.ExposureMode) -> Bool
+    func isFocusModeSupported(_ focusMode: AVCaptureDevice.FocusMode) -> Bool
     func setExposureModeCustom(duration: CMTime, iso: Float, completionHandler: (@Sendable (CMTime) -> Void)?)
     func setExposureTargetBias(_ bias: Float, completionHandler handler: (@Sendable (CMTime) -> ())?)
     func ramp(toVideoZoomFactor factor: CGFloat, withRate rate: Float)
@@ -132,6 +136,27 @@ extension CaptureDevice {
 
         focusPointOfInterest = point
         focusMode = .autoFocus
+    }
+}
+
+// MARK: Reset Focus To Continuous Auto Focus
+extension CaptureDevice {
+    func resetFocusToContinuousAutoFocus() {
+        let centerPoint = CGPoint(x: 0.5, y: 0.5)
+
+        if isFocusPointOfInterestSupported {
+            focusPointOfInterest = centerPoint
+        }
+        if isFocusModeSupported(.continuousAutoFocus) {
+            focusMode = .continuousAutoFocus
+        }
+        if isExposurePointOfInterestSupported {
+            exposurePointOfInterest = centerPoint
+        }
+        if isExposureModeSupported(.continuousAutoExposure) {
+            exposureMode = .continuousAutoExposure
+        }
+        isSubjectAreaChangeMonitoringEnabled = false
     }
 }
 
