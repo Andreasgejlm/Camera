@@ -895,6 +895,9 @@ extension CameraManager {
                 if let device = self.getCameraInput()?.device {
                     let defaultZoomFactor: CGFloat = self.getDefaultZoomFactor(of: device)
                     try? self.setCameraZoomFactor(defaultZoomFactor)
+                    // Swapping the active format resets the device's frame
+                    // durations to the format default; reapply the requested rate.
+                    try? self.setDeviceFrameRate(self.attributes.frameRate, device)
                 }
             }
         }
@@ -938,10 +941,15 @@ private struct UncheckedSendableBox<Value>: @unchecked Sendable {
 // MARK: Set Frame Rate
 extension CameraManager {
     func setFrameRate(_ frameRate: Int32) throws {
-        guard let device = getCameraInput()?.device, frameRate != attributes.frameRate, !isChanging else { return }
+        guard let device = getCameraInput()?.device, !isChanging else { return }
 
+        // Store the requested rate, not the device's clamped result: format
+        // transitions reset the device, and the post-transition reapply must
+        // use the intended value (the device clamps per-format at apply time).
+        // No early return on an unchanged value — the device may have been
+        // silently reset to the format default in the meantime.
+        attributes.frameRate = frameRate
         try setDeviceFrameRate(frameRate, device)
-        attributes.frameRate = device.activeVideoMaxFrameDuration.timescale
     }
 }
 private extension CameraManager {
