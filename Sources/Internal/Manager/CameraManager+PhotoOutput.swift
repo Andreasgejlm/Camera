@@ -32,6 +32,30 @@ extension CameraManagerPhotoOutput {
 
         output.isLivePhotoCaptureEnabled = output.isLivePhotoCaptureSupported
         self.parent.attributes.isLivePhotoCaptureSupported = output.isLivePhotoCaptureSupported
+        updateMaxPhotoDimensions()
+    }
+}
+
+// MARK: Max Photo Dimensions
+extension CameraManagerPhotoOutput {
+    /// Apple's own camera captures at up to 24 MP by default; the 48 MP modes
+    /// are disproportionately slow and heavy, so they are excluded here.
+    private static let maxPhotoPixelCount = 24_500_000
+
+    /// Raises the output's photo resolution ceiling to the largest supported
+    /// dimensions (capped at 24 MP) of the active format. Must be called again
+    /// whenever the camera input or its active format changes, since the
+    /// supported dimensions differ per format.
+    func updateMaxPhotoDimensions() {
+        guard let dimensions = preferredPhotoDimensions() else { return }
+        output.maxPhotoDimensions = dimensions
+    }
+
+    fileprivate func preferredPhotoDimensions() -> CMVideoDimensions? {
+        guard let device = parent.getCameraInput()?.device as? AVCaptureDevice else { return nil }
+        return device.activeFormat.supportedMaxPhotoDimensions
+            .filter { Int($0.width) * Int($0.height) <= Self.maxPhotoPixelCount }
+            .max { Int($0.width) * Int($0.height) < Int($1.width) * Int($1.height) }
     }
 }
 
@@ -96,6 +120,14 @@ private extension CameraManagerPhotoOutput {
     func getPhotoOutputSettings() -> AVCapturePhotoSettings {
         let settings = AVCapturePhotoSettings()
         settings.flashMode = parent.attributes.flashMode.toDeviceFlashMode()
+
+        // Request the full (capped) resolution of the current format. Clamped to
+        // the output's ceiling because settings may never exceed it.
+        if let dimensions = preferredPhotoDimensions() {
+            let ceiling = output.maxPhotoDimensions
+            let fitsCeiling = Int(dimensions.width) * Int(dimensions.height) <= Int(ceiling.width) * Int(ceiling.height)
+            settings.maxPhotoDimensions = fitsCeiling ? dimensions : ceiling
+        }
 
         if shouldCaptureLivePhoto(), let livePhotoMovieURL = FileManager.prepareURLForLivePhotoMovieOutput() {
             settings.livePhotoMovieFileURL = livePhotoMovieURL

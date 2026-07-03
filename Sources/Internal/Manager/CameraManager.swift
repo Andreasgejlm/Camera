@@ -313,6 +313,7 @@ private extension CameraManager {
         reconfigureSessionIfNeeded()
         try setupDevice(device)
         resetAttributes(device: device)
+        photoOutput.updateMaxPhotoDimensions()
 
         if attributes.cameraPosition == .front, let avDevice = device as? AVCaptureDevice {
             logFrontCameraZoomRuntimeState(avDevice, context: "startSession.frontActive")
@@ -605,6 +606,7 @@ extension CameraManager {
 
         let device = getCameraInput()?.device
         resetAttributes(device: device)
+        photoOutput.updateMaxPhotoDimensions()
 
         if position == .front {
             configureCenterStageForManualZoomIfNeeded()

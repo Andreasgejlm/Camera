@@ -90,6 +90,12 @@ private extension CameraManagerVideoOutput {
 
         connection.isVideoMirrored = parent.attributes.mirrorOutput ? parent.attributes.cameraPosition != .front : parent.attributes.cameraPosition == .front
         connection.videoOrientation = parent.attributes.deviceOrientation
+
+        // HEVC is already the system default on supported hardware; pinning it
+        // makes recording sizes deterministic across devices and formats.
+        if output.availableVideoCodecTypes.contains(.hevc) {
+            output.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc], for: connection)
+        }
     }
     func storeLastFrame() {
         guard let texture = parent.cameraMetalView.currentDrawable?.texture,
