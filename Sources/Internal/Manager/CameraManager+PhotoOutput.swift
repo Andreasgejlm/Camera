@@ -47,7 +47,9 @@ extension CameraManagerPhotoOutput {
     /// whenever the camera input or its active format changes, since the
     /// supported dimensions differ per format.
     func updateMaxPhotoDimensions() {
-        guard let dimensions = preferredPhotoDimensions() else { return }
+        guard output.connection(with: .video) != nil,
+              let dimensions = preferredPhotoDimensions()
+        else { return }
         output.maxPhotoDimensions = dimensions
     }
 
