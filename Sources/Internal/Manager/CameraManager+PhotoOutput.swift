@@ -47,10 +47,19 @@ extension CameraManagerPhotoOutput {
     /// whenever the camera input or its active format changes, since the
     /// supported dimensions differ per format.
     func updateMaxPhotoDimensions() {
-        guard output.connection(with: .video) != nil,
-              let dimensions = preferredPhotoDimensions()
-        else { return }
+        guard output.connection(with: .video) != nil else {
+            print("📐 updateMaxPhotoDimensions: no video connection, skipping")
+            return
+        }
+        guard let dimensions = preferredPhotoDimensions() else {
+            print("📐 updateMaxPhotoDimensions: no preferred dimensions, skipping")
+            return
+        }
         output.maxPhotoDimensions = dimensions
+        let device = parent.getCameraInput()?.device as? AVCaptureDevice
+        let supported = device?.activeFormat.supportedMaxPhotoDimensions
+            .map { "\($0.width)x\($0.height)" }.joined(separator: ", ") ?? "?"
+        print("📐 updateMaxPhotoDimensions: set ceiling \(dimensions.width)x\(dimensions.height) (activeFormat supports [\(supported)])")
     }
 
     fileprivate func preferredPhotoDimensions() -> CMVideoDimensions? {
@@ -129,6 +138,9 @@ private extension CameraManagerPhotoOutput {
             let ceiling = output.maxPhotoDimensions
             let fitsCeiling = Int(dimensions.width) * Int(dimensions.height) <= Int(ceiling.width) * Int(ceiling.height)
             settings.maxPhotoDimensions = fitsCeiling ? dimensions : ceiling
+            print("📐 capture: preferred \(dimensions.width)x\(dimensions.height), output ceiling \(ceiling.width)x\(ceiling.height), settings \(settings.maxPhotoDimensions.width)x\(settings.maxPhotoDimensions.height)")
+        } else {
+            print("📐 capture: preferredPhotoDimensions nil, settings left at default \(settings.maxPhotoDimensions.width)x\(settings.maxPhotoDimensions.height)")
         }
 
         if shouldCaptureLivePhoto(), let livePhotoMovieURL = FileManager.prepareURLForLivePhotoMovieOutput() {
@@ -167,6 +179,7 @@ private extension CameraManagerPhotoOutput {
 // MARK: Receive Data
 extension CameraManagerPhotoOutput: @preconcurrency AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: (any Error)?) {
+        print("📐 resolved: photo \(photo.resolvedSettings.photoDimensions.width)x\(photo.resolvedSettings.photoDimensions.height), error: \(error.map(String.init(describing:)) ?? "none")")
         let uniqueID = photo.resolvedSettings.uniqueID
         let capturedUIImage: UIImage? = photo.fileDataRepresentation().flatMap(UIImage.init(data:))
         let metadata = photo.metadata as? [String: Any]
