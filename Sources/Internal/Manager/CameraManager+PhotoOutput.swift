@@ -30,8 +30,12 @@ extension CameraManagerPhotoOutput {
         self.parent = parent
         try self.parent.captureSession.add(output: output)
 
-        output.isLivePhotoCaptureEnabled = output.isLivePhotoCaptureSupported
-        self.parent.attributes.isLivePhotoCaptureSupported = output.isLivePhotoCaptureSupported
+        // Live Photo capture stays disabled: OneLens does not support Live
+        // Photos, and enabling it constrains the photo pipeline — resolved
+        // still dimensions get silently capped at the video-compatible size
+        // (12 MP) even for plain still captures.
+        output.isLivePhotoCaptureEnabled = false
+        self.parent.attributes.isLivePhotoCaptureSupported = false
         updateMaxPhotoDimensions()
     }
 }
@@ -163,10 +167,10 @@ private extension CameraManagerPhotoOutput {
         )
     }
     func shouldCaptureLivePhoto() -> Bool {
-        parent.attributes.isLivePhotoCaptureSupported = output.isLivePhotoCaptureSupported
-
-        return parent.attributes.photoCaptureMode == .livePhoto
-            && parent.attributes.isLivePhotoCaptureSupported
+        // Requesting a Live Photo while capture is disabled on the output
+        // throws NSInvalidArgumentException, so gate on the output state.
+        parent.attributes.photoCaptureMode == .livePhoto
+            && output.isLivePhotoCaptureEnabled
     }
     func configureOutput() {
         guard let connection = output.connection(with: .video), connection.isVideoMirroringSupported else { return }
