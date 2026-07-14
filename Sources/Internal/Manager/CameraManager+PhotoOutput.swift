@@ -37,15 +37,12 @@ extension CameraManagerPhotoOutput {
         output.isLivePhotoCaptureEnabled = false
         self.parent.attributes.isLivePhotoCaptureSupported = false
 
-        // The 24 MP dimension (5712x4284) is only serviced as 24 MP when
-        // auto deferred photo delivery is opted in (per AVCapturePhotoOutput.h);
-        // without it the capture silently resolves to the 12 MP default.
-        // Deferred captures arrive via didFinishCapturingDeferredPhotoProxy.
-        if output.isAutoDeferredPhotoDeliverySupported {
-            output.isAutoDeferredPhotoDeliveryEnabled = true
-        }
+        // Apple DTS lists .quality prioritization among the requirements for
+        // high-resolution capture; the default ceiling is .balanced.
+        output.maxPhotoQualityPrioritization = .quality
 
         updateMaxPhotoDimensions()
+        print("📐 setup: autoDeferred supported=\(output.isAutoDeferredPhotoDeliverySupported) enabled=\(output.isAutoDeferredPhotoDeliveryEnabled)")
     }
 }
 
@@ -69,10 +66,21 @@ extension CameraManagerPhotoOutput {
             return
         }
         output.maxPhotoDimensions = dimensions
+
+        // The 24 MP dimension (5712x4284) is only serviced as 24 MP when
+        // auto deferred photo delivery is opted in (per AVCapturePhotoOutput.h);
+        // without it the capture silently resolves to the 12 MP default.
+        // Re-asserted here because session/format reconfiguration can reset
+        // it, and the supported flag may be false during initial setup.
+        // Deferred captures arrive via didFinishCapturingDeferredPhotoProxy.
+        if output.isAutoDeferredPhotoDeliverySupported, !output.isAutoDeferredPhotoDeliveryEnabled {
+            output.isAutoDeferredPhotoDeliveryEnabled = true
+        }
+
         let device = parent.getCameraInput()?.device as? AVCaptureDevice
         let supported = device?.activeFormat.supportedMaxPhotoDimensions
             .map { "\($0.width)x\($0.height)" }.joined(separator: ", ") ?? "?"
-        print("📐 updateMaxPhotoDimensions: set ceiling \(dimensions.width)x\(dimensions.height) (activeFormat supports [\(supported)])")
+        print("📐 updateMaxPhotoDimensions: set ceiling \(dimensions.width)x\(dimensions.height) (activeFormat supports [\(supported)]), autoDeferred supported=\(output.isAutoDeferredPhotoDeliverySupported) enabled=\(output.isAutoDeferredPhotoDeliveryEnabled)")
     }
 
     fileprivate func preferredPhotoDimensions() -> CMVideoDimensions? {
@@ -154,6 +162,13 @@ private extension CameraManagerPhotoOutput {
             print("📐 capture: preferred \(dimensions.width)x\(dimensions.height), output ceiling \(ceiling.width)x\(ceiling.height), settings \(settings.maxPhotoDimensions.width)x\(settings.maxPhotoDimensions.height)")
         } else {
             print("📐 capture: preferredPhotoDimensions nil, settings left at default \(settings.maxPhotoDimensions.width)x\(settings.maxPhotoDimensions.height)")
+        }
+
+        settings.photoQualityPrioritization = .quality
+        print("📐 capture state: autoDeferred supported=\(output.isAutoDeferredPhotoDeliverySupported) enabled=\(output.isAutoDeferredPhotoDeliveryEnabled), ZSL supported=\(output.isZeroShutterLagSupported) enabled=\(output.isZeroShutterLagEnabled), responsive supported=\(output.isResponsiveCaptureSupported) enabled=\(output.isResponsiveCaptureEnabled), maxPrio=\(output.maxPhotoQualityPrioritization.rawValue), settingsPrio=\(settings.photoQualityPrioritization.rawValue)")
+        if let device = parent.getCameraInput()?.device as? AVCaptureDevice {
+            let constituent = device.activePrimaryConstituent.map { "\($0.deviceType.rawValue)" } ?? "n/a"
+            print("📐 capture device: zoom=\(device.videoZoomFactor), constituent=\(constituent), flash=\(settings.flashMode.rawValue)")
         }
 
         if shouldCaptureLivePhoto(), let livePhotoMovieURL = FileManager.prepareURLForLivePhotoMovieOutput() {
