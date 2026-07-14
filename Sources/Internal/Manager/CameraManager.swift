@@ -136,8 +136,11 @@ private extension CameraManager {
                                                                                        let fpsMax = f.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0
                                                                                        let hdr = f.isVideoHDRSupported ? "HDR" : "-"
                                                                                        let binned = f.isVideoBinned ? "BIN" : "-"
-                                                                                       print(String(format: "[%02d] VIDEO %dx%d up to %.0f fps | PHOTO %dx%d | %@ %@ | FOV %.1f°",
-                                                                                                    i, v.width, v.height, fpsMax, p.width, p.height, hdr, binned, f.videoFieldOfView))
+                                                                                       let photoDims = f.supportedMaxPhotoDimensions
+                                                                                           .map { "\($0.width)x\($0.height)" }
+                                                                                           .joined(separator: ", ")
+                                                                                       print(String(format: "[%02d] VIDEO %dx%d up to %.0f fps | PHOTO %dx%d | PHOTO-MAX [%@] | %@ %@ | FOV %.1f°",
+                                                                                                    i, v.width, v.height, fpsMax, p.width, p.height, photoDims, hdr, binned, f.videoFieldOfView))
                                                                                    }
                                                                                }
                                                                            }
@@ -210,9 +213,8 @@ private extension CameraManager {
     func setupCameraLayer() {
         captureSession.sessionPreset = attributes.resolution
         
-        #if !DEBUG && !targetEnvironment(simulator)
-        dumpFormats(position: .back, deviceType: .builtInTripleCamera)
-        dumpVideoAndPhotoRes(position: .back, deviceTypes: [.builtInTripleCamera])
+        #if !targetEnvironment(simulator)
+        dumpVideoAndPhotoRes(position: .back, deviceTypes: [.builtInTripleCamera, .builtInWideAngleCamera])
         #endif
 
         // Guard against nil cameraView
@@ -899,6 +901,10 @@ extension CameraManager {
                     // durations to the format default; reapply the requested rate.
                     try? self.setDeviceFrameRate(self.attributes.frameRate, device)
                 }
+                // The format change also resets the photo output's
+                // maxPhotoDimensions to the new format's default (~13 MP binned
+                // instead of 24 MP); raise the ceiling again.
+                self.photoOutput.updateMaxPhotoDimensions()
             }
         }
     }
