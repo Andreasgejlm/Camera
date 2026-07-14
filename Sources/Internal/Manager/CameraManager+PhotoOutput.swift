@@ -36,6 +36,15 @@ extension CameraManagerPhotoOutput {
         // (12 MP) even for plain still captures.
         output.isLivePhotoCaptureEnabled = false
         self.parent.attributes.isLivePhotoCaptureSupported = false
+
+        // The 24 MP dimension (5712x4284) is only serviced as 24 MP when
+        // auto deferred photo delivery is opted in (per AVCapturePhotoOutput.h);
+        // without it the capture silently resolves to the 12 MP default.
+        // Deferred captures arrive via didFinishCapturingDeferredPhotoProxy.
+        if output.isAutoDeferredPhotoDeliverySupported {
+            output.isAutoDeferredPhotoDeliveryEnabled = true
+        }
+
         updateMaxPhotoDimensions()
     }
 }
@@ -184,6 +193,24 @@ private extension CameraManagerPhotoOutput {
 extension CameraManagerPhotoOutput: @preconcurrency AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: (any Error)?) {
         print("📐 resolved: photo \(photo.resolvedSettings.photoDimensions.width)x\(photo.resolvedSettings.photoDimensions.height), error: \(error.map(String.init(describing:)) ?? "none")")
+        handleCapturedPhoto(photo, error: error)
+    }
+
+    /// With auto deferred photo delivery enabled, 24 MP captures arrive here
+    /// (as a proxy with intermediate processing) instead of
+    /// didFinishProcessingPhoto — the two are mutually exclusive per capture.
+    func photoOutput(_ output: AVCapturePhotoOutput,
+                     didFinishCapturingDeferredPhotoProxy deferredPhotoProxy: AVCaptureDeferredPhotoProxy?,
+                     error: (any Error)?) {
+        if let proxy = deferredPhotoProxy {
+            print("📐 resolved (deferred): photo \(proxy.resolvedSettings.photoDimensions.width)x\(proxy.resolvedSettings.photoDimensions.height), error: \(error.map(String.init(describing:)) ?? "none")")
+        }
+        handleCapturedPhoto(deferredPhotoProxy, error: error)
+    }
+
+    private func handleCapturedPhoto(_ photo: AVCapturePhoto?, error: (any Error)?) {
+        guard let photo else { return }
+
         let uniqueID = photo.resolvedSettings.uniqueID
         let capturedUIImage: UIImage? = photo.fileDataRepresentation().flatMap(UIImage.init(data:))
         let metadata = photo.metadata as? [String: Any]
