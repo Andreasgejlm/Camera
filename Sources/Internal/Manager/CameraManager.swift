@@ -213,7 +213,7 @@ private extension CameraManager {
     func setupCameraLayer() {
         captureSession.sessionPreset = attributes.resolution
         
-        #if !targetEnvironment(simulator)
+        #if DEBUG && !targetEnvironment(simulator)
         dumpVideoAndPhotoRes(position: .back, deviceTypes: [.builtInTripleCamera, .builtInWideAngleCamera])
         #endif
 
