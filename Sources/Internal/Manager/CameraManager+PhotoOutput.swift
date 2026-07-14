@@ -37,12 +37,7 @@ extension CameraManagerPhotoOutput {
         output.isLivePhotoCaptureEnabled = false
         self.parent.attributes.isLivePhotoCaptureSupported = false
 
-        // Apple DTS lists .quality prioritization among the requirements for
-        // high-resolution capture; the default ceiling is .balanced.
-        output.maxPhotoQualityPrioritization = .quality
-
         updateMaxPhotoDimensions()
-        print("📐 setup: autoDeferred supported=\(output.isAutoDeferredPhotoDeliverySupported) enabled=\(output.isAutoDeferredPhotoDeliveryEnabled)")
     }
 }
 
@@ -50,6 +45,15 @@ extension CameraManagerPhotoOutput {
 extension CameraManagerPhotoOutput {
     /// Apple's own camera captures at up to 24 MP by default; the 48 MP modes
     /// are disproportionately slow and heavy, so they are excluded here.
+    ///
+    /// Note: in practice the >12 MP dimensions are aspirational for stills.
+    /// Per AVCapturePhotoOutput.h, the 24 MP dimension (5712x4284) is only
+    /// serviced as 24 MP with auto deferred photo delivery enabled, and the
+    /// deferred proxy's payload is itself 12 MP — finalization to 24 MP
+    /// happens exclusively inside the Photos library, which this pipeline
+    /// (capture → upload) never touches. So requesting 24 MP resolves to the
+    /// fully-processed 12 MP image; the cap remains as documentation and to
+    /// keep behavior right on devices where a real ≤24 MP dimension exists.
     private static let maxPhotoPixelCount = 24_500_000
 
     /// Raises the output's photo resolution ceiling to the largest supported
@@ -57,30 +61,10 @@ extension CameraManagerPhotoOutput {
     /// whenever the camera input or its active format changes, since the
     /// supported dimensions differ per format.
     func updateMaxPhotoDimensions() {
-        guard output.connection(with: .video) != nil else {
-            print("📐 updateMaxPhotoDimensions: no video connection, skipping")
-            return
-        }
-        guard let dimensions = preferredPhotoDimensions() else {
-            print("📐 updateMaxPhotoDimensions: no preferred dimensions, skipping")
-            return
-        }
+        guard output.connection(with: .video) != nil,
+              let dimensions = preferredPhotoDimensions()
+        else { return }
         output.maxPhotoDimensions = dimensions
-
-        // The 24 MP dimension (5712x4284) is only serviced as 24 MP when
-        // auto deferred photo delivery is opted in (per AVCapturePhotoOutput.h);
-        // without it the capture silently resolves to the 12 MP default.
-        // Re-asserted here because session/format reconfiguration can reset
-        // it, and the supported flag may be false during initial setup.
-        // Deferred captures arrive via didFinishCapturingDeferredPhotoProxy.
-        if output.isAutoDeferredPhotoDeliverySupported, !output.isAutoDeferredPhotoDeliveryEnabled {
-            output.isAutoDeferredPhotoDeliveryEnabled = true
-        }
-
-        let device = parent.getCameraInput()?.device as? AVCaptureDevice
-        let supported = device?.activeFormat.supportedMaxPhotoDimensions
-            .map { "\($0.width)x\($0.height)" }.joined(separator: ", ") ?? "?"
-        print("📐 updateMaxPhotoDimensions: set ceiling \(dimensions.width)x\(dimensions.height) (activeFormat supports [\(supported)]), autoDeferred supported=\(output.isAutoDeferredPhotoDeliverySupported) enabled=\(output.isAutoDeferredPhotoDeliveryEnabled)")
     }
 
     fileprivate func preferredPhotoDimensions() -> CMVideoDimensions? {
@@ -159,16 +143,6 @@ private extension CameraManagerPhotoOutput {
             let ceiling = output.maxPhotoDimensions
             let fitsCeiling = Int(dimensions.width) * Int(dimensions.height) <= Int(ceiling.width) * Int(ceiling.height)
             settings.maxPhotoDimensions = fitsCeiling ? dimensions : ceiling
-            print("📐 capture: preferred \(dimensions.width)x\(dimensions.height), output ceiling \(ceiling.width)x\(ceiling.height), settings \(settings.maxPhotoDimensions.width)x\(settings.maxPhotoDimensions.height)")
-        } else {
-            print("📐 capture: preferredPhotoDimensions nil, settings left at default \(settings.maxPhotoDimensions.width)x\(settings.maxPhotoDimensions.height)")
-        }
-
-        settings.photoQualityPrioritization = .quality
-        print("📐 capture state: autoDeferred supported=\(output.isAutoDeferredPhotoDeliverySupported) enabled=\(output.isAutoDeferredPhotoDeliveryEnabled), ZSL supported=\(output.isZeroShutterLagSupported) enabled=\(output.isZeroShutterLagEnabled), responsive supported=\(output.isResponsiveCaptureSupported) enabled=\(output.isResponsiveCaptureEnabled), maxPrio=\(output.maxPhotoQualityPrioritization.rawValue), settingsPrio=\(settings.photoQualityPrioritization.rawValue)")
-        if let device = parent.getCameraInput()?.device as? AVCaptureDevice {
-            let constituent = device.activePrimaryConstituent.map { "\($0.deviceType.rawValue)" } ?? "n/a"
-            print("📐 capture device: zoom=\(device.videoZoomFactor), constituent=\(constituent), flash=\(settings.flashMode.rawValue)")
         }
 
         if shouldCaptureLivePhoto(), let livePhotoMovieURL = FileManager.prepareURLForLivePhotoMovieOutput() {
@@ -207,25 +181,6 @@ private extension CameraManagerPhotoOutput {
 // MARK: Receive Data
 extension CameraManagerPhotoOutput: @preconcurrency AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: (any Error)?) {
-        print("📐 resolved: photo \(photo.resolvedSettings.photoDimensions.width)x\(photo.resolvedSettings.photoDimensions.height), error: \(error.map(String.init(describing:)) ?? "none")")
-        handleCapturedPhoto(photo, error: error)
-    }
-
-    /// With auto deferred photo delivery enabled, 24 MP captures arrive here
-    /// (as a proxy with intermediate processing) instead of
-    /// didFinishProcessingPhoto — the two are mutually exclusive per capture.
-    func photoOutput(_ output: AVCapturePhotoOutput,
-                     didFinishCapturingDeferredPhotoProxy deferredPhotoProxy: AVCaptureDeferredPhotoProxy?,
-                     error: (any Error)?) {
-        if let proxy = deferredPhotoProxy {
-            print("📐 resolved (deferred): photo \(proxy.resolvedSettings.photoDimensions.width)x\(proxy.resolvedSettings.photoDimensions.height), error: \(error.map(String.init(describing:)) ?? "none")")
-        }
-        handleCapturedPhoto(deferredPhotoProxy, error: error)
-    }
-
-    private func handleCapturedPhoto(_ photo: AVCapturePhoto?, error: (any Error)?) {
-        guard let photo else { return }
-
         let uniqueID = photo.resolvedSettings.uniqueID
         let capturedUIImage: UIImage? = photo.fileDataRepresentation().flatMap(UIImage.init(data:))
         let metadata = photo.metadata as? [String: Any]
