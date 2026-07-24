@@ -133,10 +133,11 @@ import AVFoundation
             defer { device.unlockForConfiguration() }
 
             guard isAutoMacroModeEnabled else {
-                // Focus/exposure driven switches are what hand the virtual device over to
-                // the ultra-wide lens for close-up subjects; zoom driven switches stay
-                // allowed so the regular lens selection keeps working.
-                device.setPrimaryConstituentDeviceSwitchingBehavior(.restricted, restrictedSwitchingBehaviorConditions: [.focusModeChanged, .exposureModeChanged])
+                // Focus driven switches are what hand the virtual device over to the
+                // ultra-wide lens for close-up subjects. Zoom driven switches stay allowed
+                // so the regular lens selection keeps working, and exposure driven switches
+                // stay allowed so the low light fallback is unaffected.
+                device.setPrimaryConstituentDeviceSwitchingBehavior(.restricted, restrictedSwitchingBehaviorConditions: [.focusModeChanged])
                 // Restricting only prevents future switches. If the device already handed
                 // over to the ultra-wide lens, re-applying the current zoom asks it to
                 // reselect the constituent matching that zoom — best effort way out of macro.
