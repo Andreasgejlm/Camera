@@ -31,11 +31,13 @@ import AVFoundation
     private var debounceTask: Task<Void, Never>?
     private let macroOnDebounceNanoseconds: UInt64 = 700_000_000
     private weak var observedDevice: AVCaptureDevice?
+    private(set) var isAutoMacroModeEnabled: Bool = true
 
     func setup(parent: CameraManager, device: AVCaptureDevice) {
         stop()
         self.parent = parent
         self.lastIsMacroLike = nil
+        self.isAutoMacroModeEnabled = parent.attributes.isAutoMacroModeEnabled
         // Prevent stale UI state while observers are being attached/reconciled.
         parent.attributes.isMacroMode = false
         configureVirtualSwitchingIfSupported(device)
@@ -43,6 +45,17 @@ import AVFoundation
         start(device: device) { [weak parent] isMacroLike in
             parent?.attributes.isMacroMode = isMacroLike
         }
+    }
+
+    /// Enables or disables the device's automatic hand-over to the ultra-wide lens
+    /// for close-up subjects. Observation stays attached either way, so the state
+    /// is reconciled immediately when auto macro is turned back on.
+    func setAutoMacroModeEnabled(_ isEnabled: Bool) {
+        guard isEnabled != isAutoMacroModeEnabled else { return }
+        isAutoMacroModeEnabled = isEnabled
+
+        if let observedDevice { configureVirtualSwitchingIfSupported(observedDevice) }
+        scheduleEmit()
     }
 
     func start(device: AVCaptureDevice,
@@ -88,6 +101,7 @@ import AVFoundation
         }
     }
     private func recomputeIsMacroLike() -> Bool {
+        guard isAutoMacroModeEnabled else { return false }
         guard let device = observedDevice else { return false }
         guard device.isVirtualDeviceWithUltraWideCamera else { return false }
 
@@ -117,6 +131,21 @@ import AVFoundation
         do {
             try device.lockForConfiguration()
             defer { device.unlockForConfiguration() }
+
+            guard isAutoMacroModeEnabled else {
+                // Focus driven switches are what hand the virtual device over to the
+                // ultra-wide lens for close-up subjects. Zoom driven switches stay allowed
+                // so the regular lens selection keeps working, and exposure driven switches
+                // stay allowed so the low light fallback is unaffected.
+                device.setPrimaryConstituentDeviceSwitchingBehavior(.restricted, restrictedSwitchingBehaviorConditions: [.focusModeChanged])
+                // Restricting only prevents future switches. If the device already handed
+                // over to the ultra-wide lens, re-applying the current zoom asks it to
+                // reselect the constituent matching that zoom — best effort way out of macro.
+                let currentZoomFactor = device.videoZoomFactor
+                device.videoZoomFactor = currentZoomFactor
+                return
+            }
+
             device.setPrimaryConstituentDeviceSwitchingBehavior(.auto, restrictedSwitchingBehaviorConditions: [])
         } catch {
             // Best effort; macro detection still works via device observation.

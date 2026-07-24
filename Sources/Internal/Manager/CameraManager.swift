@@ -772,6 +772,17 @@ extension CameraManager {
     }
 }
 
+// MARK: Set Auto Macro Mode
+extension CameraManager {
+    func setAutoMacroMode(_ isEnabled: Bool) {
+        guard isEnabled != attributes.isAutoMacroModeEnabled else { return }
+
+        attributes.isAutoMacroModeEnabled = isEnabled
+        macroStateObserver.setAutoMacroModeEnabled(isEnabled)
+        if !isEnabled { attributes.isMacroMode = false }
+    }
+}
+
 // MARK: Set Camera Filters
 extension CameraManager {
     func setCameraFilters(_ cameraFilters: [CIFilter]) {

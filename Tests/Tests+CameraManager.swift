@@ -271,6 +271,23 @@ extension CameraManagerTests {
     }
 }
 
+// MARK: Set Auto Macro Mode
+extension CameraManagerTests {
+    @Test("Set Auto Macro Mode") func setAutoMacroMode() async throws {
+        try await setupCamera()
+        #expect(cameraManager.attributes.isAutoMacroModeEnabled == true)
+
+        cameraManager.setAutoMacroMode(false)
+        #expect(cameraManager.attributes.isAutoMacroModeEnabled == false)
+        #expect(cameraManager.macroStateObserver.isAutoMacroModeEnabled == false)
+        #expect(cameraManager.attributes.isMacroMode == false)
+
+        cameraManager.setAutoMacroMode(true)
+        #expect(cameraManager.attributes.isAutoMacroModeEnabled == true)
+        #expect(cameraManager.macroStateObserver.isAutoMacroModeEnabled == true)
+    }
+}
+
 // MARK: Set Camera Filters
 extension CameraManagerTests {
     @Test("Set Camera Filters") func setCameraFilters() async throws {

@@ -264,6 +264,15 @@ public extension MCamera {
     func setGridVisibility(_ shouldShowGrid: Bool) -> Self { manager.attributes.isGridVisible = shouldShowGrid; return self }
 
     /**
+     Defines whether the camera is allowed to automatically switch to the ultra-wide lens for close-up (macro) subjects.
+
+     Enabled by default. When disabled, the camera keeps the lens selected by the current zoom level, and ``MCameraScreen/isMacroMode`` always reports `false`.
+
+     - note: Only applies to the back camera of devices with an ultra-wide lens; on other devices the setting has no effect.
+     */
+    func setAutoMacroMode(_ isEnabled: Bool) -> Self { manager.attributes.isAutoMacroModeEnabled = isEnabled; return self }
+
+    /**
      Changes the shape of the focus indicator visible when touching anywhere on the camera screen.
      */
     func setFocusImage(_ image: UIImage) -> Self { manager.cameraMetalView.focusIndicator.image = image; return self }
