@@ -59,6 +59,7 @@ import SwiftUI
     - ``setCameraFilters(_:)``
     - ``setMirrorOutput(_:)``
     - ``setGridVisibility(_:)``
+    - ``setAutoMacroMode(_:)``
     - ``setFocusImage(_:)``
     - ``setFocusImageColor(_:)``
     - ``setFocusImageSize(_:)``

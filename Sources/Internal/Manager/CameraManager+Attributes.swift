@@ -36,4 +36,5 @@ struct CameraManagerAttributes {
     var orientationLocked: Bool = false
     var userBlockedScreenRotation: Bool = false
     var isMacroMode: Bool = false
+    var isAutoMacroModeEnabled: Bool = true
 }

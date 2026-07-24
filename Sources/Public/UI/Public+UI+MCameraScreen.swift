@@ -217,6 +217,15 @@ public extension MCameraScreen {
      Set whether the camera grid should be visible.
      */
     func setGridVisibility(_ shouldShowGrid: Bool) { cameraManager.setGridVisibility(shouldShowGrid) }
+
+    /**
+     Set whether the camera is allowed to automatically switch to the ultra-wide lens for close-up (macro) subjects.
+
+     Enabled by default. When disabled, the camera keeps the lens selected by the current zoom level, and ``isMacroMode`` always reports `false`.
+
+     - note: Only applies to the back camera of devices with an ultra-wide lens; on other devices the setting has no effect.
+     */
+    func setAutoMacroMode(_ isEnabled: Bool) { cameraManager.setAutoMacroMode(isEnabled) }
 }
 
 // MARK: Attributes
@@ -247,7 +256,8 @@ public extension MCameraScreen {
         }
     }
     var isMacroMode: Bool { cameraManager.attributes.isMacroMode }
-    
+    var isAutoMacroModeEnabled: Bool { cameraManager.attributes.isAutoMacroModeEnabled }
+
 }
 public extension MCameraScreen {
     var hasFlash: Bool { cameraManager.hasFlash }
