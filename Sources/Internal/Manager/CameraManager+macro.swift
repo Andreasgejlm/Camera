@@ -160,6 +160,7 @@ import AVFoundation
             }
 
             device.setPrimaryConstituentDeviceSwitchingBehavior(.auto, restrictedSwitchingBehaviorConditions: [])
+            retriggerFallbackSelection(device)
         } catch {
             // Best effort; macro detection still works via device observation.
         }
@@ -195,6 +196,43 @@ import AVFoundation
                 device.videoZoomFactor = min(restoreZoomFactor, device.maxAvailableVideoZoomFactor)
             } catch {
                 // Best effort; the zoom stays at the nudged value.
+            }
+        }
+    }
+
+    /// Lifting the restriction does not make the virtual device reconsider the
+    /// lens it already settled on, so re-enabling auto macro while pointed at a
+    /// close subject would otherwise sit on the wide camera until something else
+    /// disturbed focus. Fallback selection re-runs on a focus change — that is
+    /// why `.focusModeChanged` exists as a restricted-switching condition — so
+    /// bounce focusMode through the other supported mode and restore it.
+    ///
+    /// Must be called with `device` already locked for configuration.
+    private func retriggerFallbackSelection(_ device: AVCaptureDevice) {
+        guard isDeviceInMacroState(device) == false else { return }
+
+        let restoreFocusMode = device.focusMode
+        let nudgeMode: AVCaptureDevice.FocusMode? = restoreFocusMode == .continuousAutoFocus
+            ? (device.isFocusModeSupported(.autoFocus) ? .autoFocus : nil)
+            : (device.isFocusModeSupported(.continuousAutoFocus) ? .continuousAutoFocus : nil)
+        guard let nudgeMode else { return }
+
+        device.focusMode = nudgeMode
+
+        let settleDelay = macroEscapeSettleNanoseconds
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: settleDelay)
+            // Bail if the device was swapped out or auto macro was turned back off
+            // while we were waiting.
+            guard let self, self.observedDevice === device, self.isAutoMacroModeEnabled else { return }
+            guard device.isFocusModeSupported(restoreFocusMode) else { return }
+
+            do {
+                try device.lockForConfiguration()
+                defer { device.unlockForConfiguration() }
+                device.focusMode = restoreFocusMode
+            } catch {
+                // Best effort; focus stays in the nudged mode.
             }
         }
     }
