@@ -30,6 +30,10 @@ import AVFoundation
     private var onChange: ((_ isMacroLike: Bool) -> Void)?
     private var debounceTask: Task<Void, Never>?
     private let macroOnDebounceNanoseconds: UInt64 = 700_000_000
+    private let macroZoomTolerance: CGFloat = 0.05
+    /// Time given to focus and exposure to settle before restoring the requested
+    /// zoom when nudging the device out of an already-active macro hand-over.
+    private let macroEscapeSettleNanoseconds: UInt64 = 120_000_000
     private weak var observedDevice: AVCaptureDevice?
     private(set) var isAutoMacroModeEnabled: Bool = true
 
@@ -103,6 +107,13 @@ import AVFoundation
     private func recomputeIsMacroLike() -> Bool {
         guard isAutoMacroModeEnabled else { return false }
         guard let device = observedDevice else { return false }
+        return isDeviceInMacroState(device)
+    }
+
+    /// Best-effort macro detection: the virtual device has handed over to the
+    /// ultra-wide lens while the requested zoom still sits at or above the wide
+    /// camera's switch-over point.
+    private func isDeviceInMacroState(_ device: AVCaptureDevice) -> Bool {
         guard device.isVirtualDeviceWithUltraWideCamera else { return false }
 
         guard let activeCamera = device.activePrimaryConstituent,
@@ -110,14 +121,13 @@ import AVFoundation
             return false
         }
 
-        let switchOverThreshold = device.virtualDeviceSwitchOverVideoZoomFactors.first.map { CGFloat(truncating: $0) } ?? 2.0
-        let zoomThreshold = max(2.0, switchOverThreshold)
-        let tolerance: CGFloat = 0.05
-
-        // Best-effort macro detection: virtual device has switched to ultra-wide
-        // while virtual zoom remains at/above the wide-camera switch-over point.
         return activeCamera.uniqueID == ultraWideCamera.uniqueID
-            && device.videoZoomFactor >= (zoomThreshold - tolerance)
+            && device.videoZoomFactor >= (macroZoomThreshold(for: device) - macroZoomTolerance)
+    }
+
+    private func macroZoomThreshold(for device: AVCaptureDevice) -> CGFloat {
+        let switchOverThreshold = device.virtualDeviceSwitchOverVideoZoomFactors.first.map { CGFloat(truncating: $0) } ?? 2.0
+        return max(2.0, switchOverThreshold)
     }
     private func emitIfChanged(_ value: Bool) {
         guard value != lastIsMacroLike else { return }
@@ -133,22 +143,59 @@ import AVFoundation
             defer { device.unlockForConfiguration() }
 
             guard isAutoMacroModeEnabled else {
-                // Focus driven switches are what hand the virtual device over to the
-                // ultra-wide lens for close-up subjects. Zoom driven switches stay allowed
-                // so the regular lens selection keeps working, and exposure driven switches
-                // stay allowed so the low light fallback is unaffected.
-                device.setPrimaryConstituentDeviceSwitchingBehavior(.restricted, restrictedSwitchingBehaviorConditions: [.focusModeChanged])
-                // Restricting only prevents future switches. If the device already handed
-                // over to the ultra-wide lens, re-applying the current zoom asks it to
-                // reselect the constituent matching that zoom — best effort way out of macro.
-                let currentZoomFactor = device.videoZoomFactor
-                device.videoZoomFactor = currentZoomFactor
+                // The conditions list names the triggers that are still ALLOWED to pick a
+                // fallback constituent, so an empty set is what disables the close-up
+                // hand-over to the ultra-wide lens. Passing [.focusModeChanged] here would
+                // permit precisely the switch we are trying to suppress, since the app sets
+                // focusMode on every tap to focus.
+                //
+                // Zoom does not need listing: switches required to satisfy the requested
+                // video zoom factor stay unrestricted under .restricted, so ordinary lens
+                // selection keeps working. Exposure driven low light fallback is given up
+                // deliberately — when triggered, fallback selection also weighs focus, which
+                // lets a close subject pull the device back into macro.
+                device.setPrimaryConstituentDeviceSwitchingBehavior(.restricted, restrictedSwitchingBehaviorConditions: [])
+                escapeMacroIfActive(device)
                 return
             }
 
             device.setPrimaryConstituentDeviceSwitchingBehavior(.auto, restrictedSwitchingBehaviorConditions: [])
         } catch {
             // Best effort; macro detection still works via device observation.
+        }
+    }
+
+    /// Restricting only governs future hand-overs, so a device already sitting on
+    /// the ultra-wide lens stays there. The one documented lever back is recrossing
+    /// a switch-over zoom factor: dropping below it makes ultra-wide the legitimate
+    /// choice for the requested zoom, and returning above it makes the wide camera
+    /// eligible again — which it now wins, because fallback selection is restricted.
+    /// Best effort: the device only re-selects once focus and exposure settle.
+    ///
+    /// Must be called with `device` already locked for configuration.
+    private func escapeMacroIfActive(_ device: AVCaptureDevice) {
+        guard isDeviceInMacroState(device) else { return }
+
+        let restoreZoomFactor = device.videoZoomFactor
+        let belowSwitchOver = max(device.minAvailableVideoZoomFactor, macroZoomThreshold(for: device) - 0.1)
+        guard belowSwitchOver < restoreZoomFactor else { return }
+
+        device.videoZoomFactor = belowSwitchOver
+
+        let settleDelay = macroEscapeSettleNanoseconds
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: settleDelay)
+            // Bail if the device was swapped out or auto macro was turned back on
+            // while we were waiting — either way this nudge is no longer wanted.
+            guard let self, self.observedDevice === device, !self.isAutoMacroModeEnabled else { return }
+
+            do {
+                try device.lockForConfiguration()
+                defer { device.unlockForConfiguration() }
+                device.videoZoomFactor = min(restoreZoomFactor, device.maxAvailableVideoZoomFactor)
+            } catch {
+                // Best effort; the zoom stays at the nudged value.
+            }
         }
     }
 
