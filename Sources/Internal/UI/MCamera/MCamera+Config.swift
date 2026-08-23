@@ -22,6 +22,7 @@ extension MCamera { @MainActor class Config {
     var livePhotoCapturedAction: (MCameraLivePhoto, MCamera.Controller) -> () = { _,_ in }
     var videoCapturedAction: (URL, MCamera.Controller) -> () = { _,_ in }
     var closeMCameraAction: () -> () = {}
+    var audioSetupFailedAction: (MCameraError) -> () = { _ in }
 
     // MARK: Others
     var appDelegate: MApplicationDelegate.Type? = nil

@@ -377,6 +377,15 @@ public extension MCamera {
      ```
      */
     func onVideoCaptured(_ action: @escaping (URL, MCamera.Controller) -> ()) -> Self { config.videoCapturedAction = action; return self }
+
+    /**
+     Defines action that is called when the audio (microphone) input fails to attach to the capture session.
+
+     If this happens, recorded videos will contain no audio. The error describes why the audio input could not be set up.
+
+     - note: This callback is informational — the camera continues to function for photo and video capture, but video recordings will be silent.
+     */
+    func onAudioSetupFailed(_ action: @escaping (MCameraError) -> ()) -> Self { config.audioSetupFailedAction = action; return self }
 }
 
 // MARK: Others

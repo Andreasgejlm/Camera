@@ -169,6 +169,9 @@ private extension MCamera {
         do {
             try await manager.setup()
             lockScreenOrientation(.portrait)
+            if let audioError = manager.audioSetupError {
+                config.audioSetupFailedAction(audioError)
+            }
         } catch { print("(MijickCamera) ERROR DURING SETUP: \(error)") }
     }}
     func onCameraDisappear() {

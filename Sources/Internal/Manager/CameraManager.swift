@@ -20,6 +20,7 @@ import AVKit
     private(set) var frontCameraInput: (any CaptureDeviceInput)?
     private(set) var backCameraInput: (any CaptureDeviceInput)?
     private(set) var audioInput: (any CaptureDeviceInput)?
+    private(set) var audioSetupError: MCameraError?
 
     // MARK: Output
     private(set) var photoOutput: CameraManagerPhotoOutput = .init()
@@ -270,7 +271,16 @@ private extension CameraManager {
         // visible as a frame gap and an exposure dip on the preview. Background
         // audio is safe because automatic audio session configuration is disabled
         // and the app's audio session category is mixable.
-        try? attachAudioInput()
+        do {
+            try attachAudioInput()
+            // Verify the input was actually added to the session (canAddInput may
+            // have silently returned false inside captureSession.add).
+            if attributes.isAudioSourceAvailable, audioInput == nil {
+                audioSetupError = .failedToSetupAudioInput
+            }
+        } catch {
+            audioSetupError = (error as? MCameraError) ?? .failedToSetupAudioInput
+        }
 
         // Publish the default zoom factor synchronously, before the preview renders.
         // Otherwise `zoomFactor` stays at its 1.0 default — the lowest lens, which the
@@ -409,6 +419,16 @@ extension CameraManager {
         }
 
         try captureSession.add(input: input)
+
+        // Verify the input was actually accepted by the session.
+        // `captureSession.add(input:)` silently skips `addInput` when
+        // `canAddInput` returns false, so `audioInput` must only be set
+        // when the session's inputs contain the audio device.
+        if let session = captureSession as? AVCaptureSession,
+           let avInput = input as? AVCaptureDeviceInput,
+           !session.inputs.contains(avInput) {
+            throw MCameraError.failedToSetupAudioInput
+        }
         self.audioInput = input
     }
 
