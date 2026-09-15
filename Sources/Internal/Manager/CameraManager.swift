@@ -475,6 +475,39 @@ extension CameraManager {
         attributes.isMacroMode = false
     }
 }
+// MARK: Pause / Resume Session
+public extension CameraManager {
+    /// Stops the running capture session and relinquishes the audio session
+    /// **without** tearing down inputs, outputs, or the preview layer.
+    ///
+    /// Use this when the host app resigns active / enters the background so the
+    /// camera and microphone hardware are released to other apps (e.g. the system
+    /// Camera app). Unlike `cancel()`, it keeps the same `captureSession` instance
+    /// and its Metal preview wiring intact, so `resumeSession()` can restart it
+    /// cheaply. Safe to call when the session is already stopped (no-op).
+    func pauseSession() {
+        guard let session = captureSession as? AVCaptureSession, session.isRunning else { return }
+        attributes.lightMode = .off
+        videoOutput.reset()
+        deactivateAudioSession()
+        // stopRunning() blocks until the session tears down its connection to the
+        // hardware; keep it off the main thread as elsewhere in the manager.
+        Task.detached(priority: .userInitiated) {
+            session.stopRunning()
+        }
+    }
+
+    /// Restarts a session previously stopped by `pauseSession()` and reactivates
+    /// the (mixable) audio session. Safe to call when already running (no-op).
+    func resumeSession() {
+        guard let session = captureSession as? AVCaptureSession, !session.isRunning else { return }
+        try? configureAudioSessionForRecording()
+        Task.detached(priority: .userInitiated) {
+            session.startRunning()
+            try? AVAudioSession.sharedInstance().setActive(true)
+        }
+    }
+}
 private extension CameraManager {
     func detachReusedSessionObjects() {
         guard let session = captureSession as? AVCaptureSession else { return }
