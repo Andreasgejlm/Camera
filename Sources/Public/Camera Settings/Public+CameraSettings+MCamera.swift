@@ -273,6 +273,13 @@ public extension MCamera {
     func setAutoMacroMode(_ isEnabled: Bool) -> Self { manager.attributes.isAutoMacroModeEnabled = isEnabled; return self }
 
     /**
+     Sets the video stabilization mode applied to recorded video.
+
+     Defaults to `.off`. The active format must support the requested mode; unsupported modes are ignored.
+     */
+    func setVideoStabilizationMode(_ mode: AVCaptureVideoStabilizationMode) -> Self { manager.attributes.videoStabilizationMode = mode; return self }
+
+    /**
      Changes the shape of the focus indicator visible when touching anywhere on the camera screen.
      */
     func setFocusImage(_ image: UIImage) -> Self { manager.cameraMetalView.focusIndicator.image = image; return self }

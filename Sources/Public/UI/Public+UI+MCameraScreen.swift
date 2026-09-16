@@ -226,6 +226,13 @@ public extension MCameraScreen {
      - note: Only applies to the back camera of devices with an ultra-wide lens; on other devices the setting has no effect.
      */
     func setAutoMacroMode(_ isEnabled: Bool) { cameraManager.setAutoMacroMode(isEnabled) }
+
+    /**
+     Set the video stabilization mode applied to recorded video.
+
+     - note: The active format must support stabilization; unsupported modes are ignored. Use `.off` to disable.
+     */
+    func setVideoStabilizationMode(_ mode: AVCaptureVideoStabilizationMode) { cameraManager.setVideoStabilizationMode(mode) }
 }
 
 // MARK: Attributes
