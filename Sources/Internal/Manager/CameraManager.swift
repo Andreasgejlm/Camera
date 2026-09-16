@@ -107,7 +107,41 @@ extension CameraManager {
         try cameraMetalView.setup(parent: self)
         cameraGridView.setup(parent: self)
 
+        dumpMultiCamSets() // TEMP DIAGNOSTIC — remove after capturing multicam device sets
+
         startSession()
+    }
+}
+extension CameraManager {
+    // TEMP DIAGNOSTIC — prints the device's supported AVCaptureMultiCamSession
+    // device sets so we can decide the PiP architecture. Remove once captured.
+    func dumpMultiCamSets() {
+        print("\n=== MULTICAM DIAGNOSTIC ===")
+        print("isMultiCamSupported: \(AVCaptureMultiCamSession.isMultiCamSupported)")
+
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [
+                .builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera,
+                .builtInDualCamera, .builtInDualWideCamera, .builtInTripleCamera
+            ],
+            mediaType: .video,
+            position: .unspecified
+        )
+
+        func pos(_ p: AVCaptureDevice.Position) -> String {
+            switch p { case .back: return "back"; case .front: return "front"; default: return "?" }
+        }
+
+        let sets = discovery.supportedMultiCamDeviceSets
+        print("supportedMultiCamDeviceSets: \(sets.count)")
+        for (i, set) in sets.enumerated() {
+            let hasTriple = set.contains { $0.deviceType == .builtInTripleCamera }
+            print("Set \(i)\(hasTriple ? "  ⭐️ CONTAINS TRIPLE" : "")")
+            for d in set.sorted(by: { $0.deviceType.rawValue < $1.deviceType.rawValue }) {
+                print("  \(pos(d.position))  \(d.deviceType.rawValue)")
+            }
+        }
+        print("=== END MULTICAM DIAGNOSTIC ===\n")
     }
 }
 private extension CameraManager {
