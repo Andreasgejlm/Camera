@@ -485,7 +485,7 @@ public extension CameraManager {
     /// Camera app). Unlike `cancel()`, it keeps the same `captureSession` instance
     /// and its Metal preview wiring intact, so `resumeSession()` can restart it
     /// cheaply. Safe to call when the session is already stopped (no-op).
-    func pauseSession() {
+    public func pauseSession() {
         guard let session = captureSession as? AVCaptureSession, session.isRunning else { return }
         attributes.lightMode = .off
         videoOutput.reset()
@@ -499,7 +499,7 @@ public extension CameraManager {
 
     /// Restarts a session previously stopped by `pauseSession()` and reactivates
     /// the (mixable) audio session. Safe to call when already running (no-op).
-    func resumeSession() {
+    public func resumeSession() {
         guard let session = captureSession as? AVCaptureSession, !session.isRunning else { return }
         try? configureAudioSessionForRecording()
         Task.detached(priority: .userInitiated) {
