@@ -273,4 +273,9 @@ public extension MCameraScreen {
     var isRecording: Bool { cameraManager.videoOutput.timer.timerStatus == .running }
     var isOrientationLocked: Bool { cameraManager.attributes.orientationLocked || cameraManager.attributes.userBlockedScreenRotation }
     var deviceOrientation: AVCaptureVideoOrientation { cameraManager.attributes.deviceOrientation }
+    /// Orientation the next photo, or the video being recorded, is saved in.
+    /// Unlike `UIDevice.current.orientation`, this ignores the system rotation lock,
+    /// holds its last value while the device lies flat, and stays fixed for the
+    /// whole recording.
+    var captureOrientation: AVCaptureVideoOrientation { cameraManager.attributes.recordingOrientation ?? cameraManager.attributes.deviceOrientation }
 }

@@ -33,6 +33,9 @@ struct CameraManagerAttributes {
     var videoStabilizationMode: AVCaptureVideoStabilizationMode = .off
 
     var deviceOrientation: AVCaptureVideoOrientation = .portrait
+    /// Orientation the in-progress recording is being written in, captured when
+    /// recording starts. Nil while not recording.
+    var recordingOrientation: AVCaptureVideoOrientation? = nil
     var frameOrientation: CGImagePropertyOrientation = .right
     var orientationLocked: Bool = false
     var userBlockedScreenRotation: Bool = false

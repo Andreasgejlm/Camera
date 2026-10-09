@@ -32,6 +32,7 @@ extension CameraManagerVideoOutput {
 // MARK: Reset
 extension CameraManagerVideoOutput {
     func reset() {
+        parent?.attributes.recordingOrientation = nil
         timer.reset()
     }
 }
@@ -64,6 +65,7 @@ extension CameraManagerVideoOutput {
         // setup and the audio session activated then. Any topology change on the
         // running session at this point makes AVFoundation rebuild the capture
         // pipeline, which shows as a frame gap and an exposure dip on the preview.
+        parent.attributes.recordingOrientation = parent.attributes.deviceOrientation
         configureOutput()
         output.startRecording(to: url, recordingDelegate: self)
         startRecordingTimer()
@@ -74,6 +76,7 @@ extension CameraManagerVideoOutput {
     #if targetEnvironment(simulator)
     private func startMockRecording() {
         print("📹 DEBUG MODE: Mock recording started")
+        parent.attributes.recordingOrientation = parent.attributes.deviceOrientation
         startRecordingTimer()
         parent.objectWillChange.send()
     }
@@ -128,6 +131,7 @@ extension CameraManagerVideoOutput {
         #else
         output.stopRecording()
         #endif
+        parent.attributes.recordingOrientation = nil
         timer.reset()
     }
     
@@ -156,6 +160,10 @@ extension CameraManagerVideoOutput {
 extension CameraManagerVideoOutput: @preconcurrency AVCaptureFileOutputRecordingDelegate {
     func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: (any Error)?) {
         Task {
+            // Covers recordings the system ends on its own (interruption, disk full)
+            // without going through stopRecording().
+            if !self.output.isRecording { parent.attributes.recordingOrientation = nil }
+
             // Check for recording errors first
             if let nsError = error as NSError? {
                 let finished = (nsError.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool) ?? false
