@@ -591,6 +591,7 @@ private extension CameraManager {
         attributes.lightMode = .off
         videoOutput.reset()
         motionManager.reset()
+        cameraMetalView.showPauseCover()
 
         let session = captureSession
         sessionQueue.async {
@@ -601,9 +602,26 @@ private extension CameraManager {
     }
     func restartCaptureSession() {
         motionManager.setup(parent: self)
+        let staleFrame = cameraMetalView.currentFrame
         Task {
             await startCaptureSession(reactivatingAudio: true)
             restoreDeviceStateAfterRestart()
+
+            await waitForFirstFrame(after: staleFrame)
+            // The first frames are still converging on exposure and focus.
+            await Task.sleep(seconds: 0.1)
+            // Paused again in the meantime: that pause owns the cover now.
+            guard isSessionStartRequested else { return }
+            cameraMetalView.hidePauseCover()
+        }
+    }
+    /// Polls until the preview has rendered a frame newer than `staleFrame`,
+    /// with a timeout in case frames never resume.
+    func waitForFirstFrame(after staleFrame: CIImage?) async {
+        let deadline = ContinuousClock.now + .seconds(1)
+        while ContinuousClock.now < deadline {
+            if let frame = cameraMetalView.currentFrame, frame !== staleFrame { return }
+            try? await Task.sleep(nanoseconds: 16_000_000)
         }
     }
     /// The device keeps its configuration across a stop/start of the same

@@ -156,6 +156,32 @@ private extension CameraMetalView {
     var cameraFlipAnimationTransition: UIView.AnimationOptions { parent.attributes.cameraPosition == .back ? .transitionFlipFromLeft : .transitionFlipFromRight }
 }
 
+// MARK: Session Pause
+extension CameraMetalView {
+    /// Blurs the preview while the session is stopped. The Metal view keeps
+    /// showing its last frame, and without a cover that stale frame snaps to
+    /// the live feed (at a not yet settled exposure) when the session restarts.
+    func showPauseCover() {
+        guard let cameraView = parent?.cameraView, cameraView.viewWithTag(.pauseCoverTag) == nil else { return }
+
+        let cover = UIVisualEffectView(effect: UIBlurEffect(style: .regular))
+        cover.overrideUserInterfaceStyle = .dark
+        cover.tag = .pauseCoverTag
+        cover.frame = cameraView.bounds
+        cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        cameraView.addSubview(cover)
+    }
+    func hidePauseCover() {
+        guard let cover = parent?.cameraView?.viewWithTag(.pauseCoverTag) as? UIVisualEffectView else { return }
+
+        // Untagged first, so a pause during the fade gets a fresh cover.
+        cover.tag = 0
+        UIView.animate(withDuration: 0.3, animations: { cover.effect = nil }) { _ in
+            cover.removeFromSuperview()
+        }
+    }
+}
+
 // MARK: Camera Focus
 extension CameraMetalView {
     func performCameraFocusAnimation(touchPoint: CGPoint) {

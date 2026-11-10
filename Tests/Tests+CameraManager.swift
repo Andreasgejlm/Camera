@@ -118,6 +118,7 @@ extension CameraManagerTests {
         await waitForSessionQueue()
 
         #expect(cameraManager.captureSession.isRunning == false)
+        #expect(cameraManager.cameraView.viewWithTag(.pauseCoverTag) != nil)
         #expect(cameraManager.captureSession as? MockCaptureSession === session)
         #expect(cameraManager.captureSession.deviceInputs.count == 2)
         #expect(cameraManager.captureSession.outputs.count == outputCount)
@@ -128,9 +129,11 @@ extension CameraManagerTests {
 
         cameraManager.pause(.screenHidden)
         cameraManager.resume(.screenHidden)
-        await waitForSessionQueue()
+        // No frames arrive in the simulator, so the cover lifts on its timeout.
+        await Task.sleep(seconds: 2)
 
         #expect(cameraManager.captureSession.isRunning == true)
+        #expect(cameraManager.cameraView.viewWithTag(.pauseCoverTag) == nil)
         #expect(cameraManager.captureSession.deviceInputs.count == 2)
         #expect(cameraManager.captureSession.outputs.count == outputCount)
     }

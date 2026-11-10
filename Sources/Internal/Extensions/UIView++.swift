@@ -40,4 +40,5 @@ extension UIView {
 extension Int {
     static var blurViewTag: Int { 2137 }
     static var focusIndicatorTag: Int { 29 }
+    static var pauseCoverTag: Int { 2138 }
 }
