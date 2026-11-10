@@ -31,6 +31,11 @@ import AVFoundation
     private var debounceTask: Task<Void, Never>?
     private let macroOnDebounceNanoseconds: UInt64 = 700_000_000
     private let macroZoomTolerance: CGFloat = 0.05
+    /// A device that has just started has not focused yet, and until it has it
+    /// can sit on the ultra-wide lens for a moment as if the subject were
+    /// close. Macro is not reported during this window after a start.
+    private let macroStartGrace: Duration = .seconds(2)
+    private var macroSuppressedUntil: ContinuousClock.Instant?
     /// Time given to focus and exposure to settle before restoring the requested
     /// zoom when nudging the device out of an already-active macro hand-over.
     private let macroEscapeSettleNanoseconds: UInt64 = 120_000_000
@@ -40,6 +45,7 @@ import AVFoundation
     func setup(parent: CameraManager, device: AVCaptureDevice) {
         stop()
         self.parent = parent
+        self.macroSuppressedUntil = .now + macroStartGrace
         self.lastIsMacroLike = nil
         self.isAutoMacroModeEnabled = parent.attributes.isAutoMacroModeEnabled
         // Prevent stale UI state while observers are being attached/reconciled.
@@ -59,6 +65,13 @@ import AVFoundation
         isAutoMacroModeEnabled = isEnabled
 
         if let observedDevice { configureVirtualSwitchingIfSupported(observedDevice) }
+        scheduleEmit()
+    }
+
+    /// Call when the session is about to (re)start with the same device.
+    func noteSessionStarting() {
+        guard observedDevice != nil else { return }
+        macroSuppressedUntil = .now + macroStartGrace
         scheduleEmit()
     }
 
@@ -95,6 +108,9 @@ import AVFoundation
         debounceTask = Task { @MainActor in
             let candidate = self.recomputeIsMacroLike()
             if candidate {
+                if let suppressedUntil = self.macroSuppressedUntil, suppressedUntil > .now {
+                    try? await Task.sleep(until: suppressedUntil)
+                }
                 try? await Task.sleep(nanoseconds: macroOnDebounceNanoseconds)
             }
             guard !Task.isCancelled else { return }
@@ -131,6 +147,9 @@ import AVFoundation
     }
     private func emitIfChanged(_ value: Bool) {
         guard value != lastIsMacroLike else { return }
+        #if DEBUG
+        print("🔭 macro=\(value) | deviceZoom=\(observedDevice?.videoZoomFactor ?? 0) lens=\(observedDevice?.activePrimaryConstituent?.deviceType.rawValue ?? "none")")
+        #endif
         lastIsMacroLike = value
         onChange?(value)
     }

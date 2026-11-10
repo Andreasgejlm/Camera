@@ -44,9 +44,9 @@ import AVKit
     private(set) var macroStateObserver: MacroStateObserver = .init()
 
     // MARK: Session Lifecycle
-    /// Every blocking session call (start, stop, audio session activation) runs
-    /// here, in order. `startRunning()`/`stopRunning()` and `setActive(_:)` block
-    /// their caller for hundreds of milliseconds, which on the main thread
+    /// Every blocking session call (start, stop, opening the mic) runs here, in
+    /// order. `startRunning()` and `stopRunning()` block their caller for
+    /// hundreds of milliseconds, which on the main thread
     /// freezes whatever animation is in flight. One serial queue also keeps a
     /// quick stop-then-start (leave the camera and come straight back) from
     /// being applied out of order.
@@ -60,6 +60,7 @@ import AVKit
     /// False until the first start is on `sessionQueue`; pausing before that
     /// only records the reason, so a stop can never be queued ahead of it.
     private var isFirstStartQueued: Bool = false
+    private var audioRouteObserver: (any NSObjectProtocol)?
     
 //    //MARK: Macro
 //    private var zoomFactorObserver: NSKeyValueObservation?
@@ -83,6 +84,13 @@ import AVKit
         self.captureSession = captureSession
         self.frontCameraInput = CDI.get(mediaType: .video, position: .front)
         self.backCameraInput = CDI.get(mediaType: .video, position: .back)
+        super.init()
+        // Published from the very first render. The 1.0 default is the lowest
+        // lens of a multi-lens device, which the zoom control shows as "0.5×"
+        // until setup has run.
+        if let device = backCameraInput?.device {
+            attributes.zoomFactor = getDefaultZoomFactor(of: device)
+        }
     }
 }
 
@@ -106,26 +114,11 @@ extension CameraManager {
         try await permissionsManager.requestAccess(parent: self)
 
         setupCameraLayer()
-        // Set audio session category early so iOS knows to mix with other audio.
-        // This only sets the category — it does NOT add the mic input or activate
-        // the session, so background audio is not interrupted.
-        try? configureAudioSessionForRecording()
-        // Prevent AVFoundation from reconfiguring the audio session when the mic
-        // input becomes active — its automatic configuration uses a non-mixable
-        // category that pauses other apps' audio (speaker and headphones). We
-        // manage the mixable session ourselves: category above, activation below.
-        (captureSession as? AVCaptureSession)?.automaticallyConfiguresApplicationAudioSession = false
-        // With automatic configuration off, nothing else activates the audio
-        // session, and an inactive session means a silent mic. Activating a
-        // mixable session does not interrupt other apps' audio. Done off the main
-        // thread because activation is a blocking call and preview sample buffers
-        // are delivered on the main queue.
-        sessionQueue.async {
-            try? AVAudioSession.sharedInstance().setActive(true)
-        }
+        configureAudioSession()
         try setupDeviceInputs()
         configureCenterStageForManualZoomIfNeeded()
         try setupDeviceOutput()
+        setRecordingAudioConnectionEnabled(false)
         try setupFrameRecorder()
         notificationCenterManager.setup(parent: self)
         motionManager.setup(parent: self)
@@ -294,9 +287,9 @@ private extension CameraManager {
         // The mic input is attached here, before the session starts running.
         // Attaching it later (at recording time) commits a topology change to a
         // running session, which makes AVFoundation rebuild the capture pipeline —
-        // visible as a frame gap and an exposure dip on the preview. Background
-        // audio is safe because automatic audio session configuration is disabled
-        // and the app's audio session category is mixable.
+        // visible as a frame gap and an exposure dip on the preview. An attached
+        // mic is not an open one: its connection stays off, and the audio session
+        // untouched, until a recording starts (see `configureAudioSession`).
         do {
             try attachAudioInput()
             // Verify the input was actually added to the session (canAddInput may
@@ -315,6 +308,10 @@ private extension CameraManager {
         // flash 0.5× then snap to 1.0× on launch.
         if let device = getCameraInput()?.device {
             attributes.zoomFactor = getDefaultZoomFactor(of: device)
+            // Applied to the device too, before the session starts, so a
+            // multi-lens device comes up on the default lens instead of
+            // starting on the ultra-wide one and visibly switching.
+            try? setDeviceZoomFactor(attributes.zoomFactor, device)
         }
     }
     func setupDeviceOutput() throws(MCameraError) {
@@ -348,6 +345,7 @@ private extension CameraManager {
         guard let device = getCameraInput()?.device else { return }
 
         await startCaptureSessionForTheFirstTime()
+        if let avDevice = device as? AVCaptureDevice { traceLens("first start", avDevice) }
         reconfigureSessionIfNeeded()
         try setupDevice(device)
         resetAttributes(device: device)
@@ -361,7 +359,11 @@ private extension CameraManager {
         if attributes.cameraPosition == .back, let avDevice = device as? AVCaptureDevice {
             macroStateObserver.setup(parent: self, device: avDevice)
         }
-        
+
+        // The preview stays hidden until the device has settled on its lens,
+        // exposure and focus, so none of that is visible as the camera opens.
+        await waitForFirstFrame(after: nil)
+        await waitForDeviceToSettle()
         cameraMetalView.performCameraEntranceAnimation()
         #endif
     }}
@@ -394,20 +396,16 @@ private extension CameraManager {
         // foreground, during setup) is applied once the start has finished.
         isFirstStartQueued = true
         isSessionStartRequested = true
-        await startCaptureSession(reactivatingAudio: false)
+        await startCaptureSession()
         reconcileSessionState()
     }
     /// Starts the session on `sessionQueue` and returns once it is running.
-    /// - Parameter reactivatingAudio: Restores the mixable audio session that
-    ///   `stopCaptureSession()` gave up. Not needed for the first start, where
-    ///   `setup()` has already configured and activated it.
-    func startCaptureSession(reactivatingAudio: Bool) async {
+    func startCaptureSession() async {
         let session = captureSession
         await withCheckedContinuation { continuation in
             sessionQueue.async {
-                if reactivatingAudio { try? Self.applyRecordingAudioSessionCategory() }
                 session.startRunning()
-                if reactivatingAudio { try? AVAudioSession.sharedInstance().setActive(true) }
+                Self.traceAudioSession("session started")
                 continuation.resume()
             }
         }
@@ -431,34 +429,50 @@ private extension CameraManager {
 // MARK: Audio management
 extension CameraManager {
 
-    func configureAudioSessionForRecording() throws(MCameraError) {
-        do {
-            try Self.applyRecordingAudioSessionCategory()
-        } catch {
-            print("Audio session setup error: \(error)")
-            throw MCameraError.failedToSetupAudioInput
-        }
+    /// Hands the app's audio session to the capture session, mixing with
+    /// other apps' audio, and leaves the mic closed until a recording starts.
+    ///
+    /// The capture session configures and activates the audio session itself,
+    /// at the moment the mic's connection is switched on (see
+    /// `prepareAudioForRecording`), and does so without the audible dropout in
+    /// other apps' audio that activating a hand-configured session causes.
+    /// Until then the audio session is not touched at all, so opening the
+    /// camera, or returning to it, cannot disturb music that is playing.
+    func configureAudioSession() {
+        guard let session = captureSession as? AVCaptureSession else { return }
+
+        session.automaticallyConfiguresApplicationAudioSession = true
+        session.configuresApplicationAudioSessionToMixWithOthers = true
+        // Not part of the category, so it survives the automatic configuration.
+        try? AVAudioSession.sharedInstance().setAllowHapticsAndSystemSoundsDuringRecording(true)
+        traceAudioRouteChanges()
     }
 
-    /// Nonisolated so it can also run on `sessionQueue`: setting the category is
-    /// a blocking round trip to the audio server.
-    nonisolated static func applyRecordingAudioSessionCategory() throws {
+    /// Debug aid for "OneLens paused my music" reports: `otherAudioPlaying`
+    /// turning false right after one of these lines names the step that did it.
+    nonisolated static func traceAudioSession(_ label: String, error: (any Error)? = nil) {
+        #if DEBUG
         let audio = AVAudioSession.sharedInstance()
-        try audio.setAllowHapticsAndSystemSoundsDuringRecording(true)
-        // Configure with mixWithOthers to allow background music to continue playing
-        // defaultToSpeaker ensures recorded audio goes to speaker, not just receiver
-        try audio.setCategory(.playAndRecord, options: [.mixWithOthers, .allowBluetoothA2DP, .defaultToSpeaker])
+        let outputs = audio.currentRoute.outputs.map(\.portType.rawValue)
+        let inputs = audio.currentRoute.inputs.map(\.portType.rawValue)
+        let failure = error.map { " error=\($0)" } ?? ""
+        print("🎧 \(label) | otherAudioPlaying=\(audio.isOtherAudioPlaying) category=\(audio.category.rawValue) mode=\(audio.mode.rawValue) options=\(audio.categoryOptions.rawValue) rate=\(Int(audio.sampleRate)) outputs=\(outputs) inputs=\(inputs)\(failure)")
+        #endif
+    }
+    func traceAudioRouteChanges() {
+        #if DEBUG
+        guard audioRouteObserver == nil else { return }
+        audioRouteObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { note in
+            let reason = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
+            Self.traceAudioSession("ROUTE CHANGE reason=\(reason)")
+        }
+        #endif
     }
 
     private func deactivateAudioSession() {
-        Self.deactivateAudioSession()
-    }
-
-    nonisolated static func deactivateAudioSession() {
         do {
-            let audio = AVAudioSession.sharedInstance()
             // Deactivate with notifyOthersOnDeactivation to allow background audio to resume
-            try audio.setActive(false, options: .notifyOthersOnDeactivation)
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         } catch {
             print("Audio session deactivation error: \(error)")
         }
@@ -492,6 +506,40 @@ extension CameraManager {
 
         captureSession.remove(input: input)
         self.audioInput = nil
+    }
+}
+
+// MARK: Recording audio
+extension CameraManager {
+    /// Opens the mic for a recording by switching the movie output's audio
+    /// connection on, which is when the capture session configures and
+    /// activates the audio session. The mic input itself has been attached
+    /// since setup, so the running session's topology does not change here and
+    /// the preview is not rebuilt.
+    func prepareAudioForRecording() async {
+        guard audioInput != nil else { return }
+
+        let connection = UncheckedSendableBox(value: videoOutput.output.connection(with: .audio))
+        await withCheckedContinuation { continuation in
+            sessionQueue.async {
+                connection.value?.isEnabled = true
+                Self.traceAudioSession("recording audio on")
+                continuation.resume()
+            }
+        }
+    }
+    /// Closes the mic again once a recording has ended.
+    func releaseAudioAfterRecording() {
+        guard audioInput != nil else { return }
+
+        let connection = UncheckedSendableBox(value: videoOutput.output.connection(with: .audio))
+        sessionQueue.async {
+            connection.value?.isEnabled = false
+            Self.traceAudioSession("recording audio off")
+        }
+    }
+    func setRecordingAudioConnectionEnabled(_ isEnabled: Bool) {
+        videoOutput.output.connection(with: .audio)?.isEnabled = isEnabled
     }
 }
 
@@ -555,6 +603,11 @@ extension CameraManager {
     func pause(_ reason: SessionPauseReason) {
         pauseReasons.insert(reason)
         reconcileSessionState()
+        // Already stopped for another reason: the cover is up, but it may be
+        // the blurred frame, which a host pause must not leave on screen.
+        if reason == .host, isFirstStartQueued, !isSessionStartRequested {
+            cameraMetalView.showPauseCover(concealingLastFrame: true)
+        }
     }
     func resume(_ reason: SessionPauseReason) {
         pauseReasons.remove(reason)
@@ -562,8 +615,8 @@ extension CameraManager {
     }
 }
 public extension CameraManager {
-    /// Stops the running capture session and relinquishes the audio session
-    /// **without** tearing down inputs, outputs, or the preview layer.
+    /// Stops the running capture session **without** tearing down inputs,
+    /// outputs, or the preview layer.
     ///
     /// Use this when the host app resigns active / enters the background so the
     /// camera and microphone hardware are released to other apps (e.g. the system
@@ -572,9 +625,9 @@ public extension CameraManager {
     /// cheaply. Safe to call when the session is already stopped (no-op).
     func pauseSession() { pause(.host) }
 
-    /// Lifts a `pauseSession()`. The session restarts, with its (mixable) audio
-    /// session, unless the camera screen is itself off screen, in which case it
-    /// restarts when the screen returns. Safe to call when already running (no-op).
+    /// Lifts a `pauseSession()`. The session restarts unless the camera screen
+    /// is itself off screen, in which case it restarts when the screen returns.
+    /// Safe to call when already running (no-op).
     func resumeSession() { resume(.host) }
 }
 private extension CameraManager {
@@ -592,17 +645,21 @@ private extension CameraManager {
         attributes.lightMode = .off
         videoOutput.reset()
         motionManager.reset()
-        cameraMetalView.showPauseCover()
+        cameraMetalView.showPauseCover(concealingLastFrame: pauseReasons.contains(.host))
 
         let session = captureSession
         sessionQueue.async {
             session.stopRunning()
-            // After the session, so the audio session has no running I/O left.
-            Self.deactivateAudioSession()
+            Self.traceAudioSession("session stopped")
         }
     }
     func restartCaptureSession() {
         motionManager.setup(parent: self)
+        macroStateObserver.noteSessionStarting()
+        // Before the start, so the device comes back up on the lens the UI shows.
+        if let device = getCameraInput()?.device {
+            try? setDeviceZoomFactor(attributes.zoomFactor, device)
+        }
         let staleFrame = cameraMetalView.currentFrame
         // A restarting session delivers frames that are not fit to show: a
         // black one while the hardware comes up, then lens, exposure and focus
@@ -610,7 +667,7 @@ private extension CameraManager {
         // holds its last frame until the device has settled.
         cameraMetalView.isPresentingFrames = false
         Task {
-            await startCaptureSession(reactivatingAudio: true)
+            await startCaptureSession()
             restoreDeviceStateAfterRestart()
 
             await waitForFirstFrame(after: staleFrame)
@@ -619,32 +676,71 @@ private extension CameraManager {
             // the restart that follows it resumes drawing.
             guard isSessionStartRequested else { return }
             cameraMetalView.isPresentingFrames = true
-            // Let a live frame replace the held one before the blur lifts.
-            await Task.sleep(seconds: 0.07)
-            cameraMetalView.hidePauseCover()
+            // A live frame must have replaced the held one before the cover
+            // lifts. Without one, a cover that conceals the last frame stays.
+            let isShowingLiveFrame = await waitForPresentedFrame()
+            guard isSessionStartRequested else { return }
+            if isShowingLiveFrame || !cameraMetalView.pauseCoverConcealsLastFrame {
+                cameraMetalView.hidePauseCover()
+            }
         }
     }
-    /// The first frames after a restart are not the final picture: a multi-lens
-    /// device may still switch its active lens, and exposure and focus are
-    /// still converging, which shows as a jump if revealed. Waits until the
-    /// device has reported itself settled for 100 ms, or gives up after 400 ms.
+    func waitForPresentedFrame() async -> Bool {
+        let countBefore = cameraMetalView.presentedFrameCount
+        let deadline = ContinuousClock.now + .milliseconds(500)
+        while ContinuousClock.now < deadline {
+            if cameraMetalView.presentedFrameCount != countBefore { return true }
+            try? await Task.sleep(nanoseconds: 16_000_000)
+        }
+        return false
+    }
+    /// The first frames after a start are not the final picture: a multi-lens
+    /// device comes up on one lens and may still switch to the one the zoom
+    /// factor calls for, and exposure and focus are still converging, which
+    /// shows as a jump if revealed. Waits until the device is on the expected
+    /// lens and has reported itself settled for 100 ms, or gives up after 1 s
+    /// (a close subject legitimately keeps the device on the ultra-wide lens).
     func waitForDeviceToSettle() async {
         guard let device = getCameraInput()?.device as? AVCaptureDevice else { return }
 
-        let deadline = ContinuousClock.now + .milliseconds(400)
+        let start = ContinuousClock.now
+        let deadline = start + .seconds(1)
         var activeLens = device.activePrimaryConstituent?.uniqueID
         var settledPolls = 0
+        traceLens("settle begins", device)
         while ContinuousClock.now < deadline, settledPolls < 3 {
             try? await Task.sleep(nanoseconds: 33_000_000)
 
             let currentLens = device.activePrimaryConstituent?.uniqueID
+            let expectedLens = expectedLensID(of: device)
             let isSettled = currentLens == activeLens
+                && (expectedLens == nil || currentLens == expectedLens)
+                && device.videoZoomFactor == attributes.zoomFactor
                 && !device.isAdjustingExposure
                 && !device.isAdjustingFocus
                 && !device.isRampingVideoZoom
             settledPolls = isSettled ? settledPolls + 1 : 0
+            if currentLens != activeLens { traceLens("lens changed after \(ContinuousClock.now - start)", device) }
             activeLens = currentLens
         }
+        traceLens("settle ends after \(ContinuousClock.now - start), settled=\(settledPolls >= 3)", device)
+    }
+    /// The lens a virtual device uses for its current zoom factor when nothing
+    /// (such as a close subject) makes it fall back to another one.
+    func expectedLensID(of device: AVCaptureDevice) -> String? {
+        guard device.isVirtualDevice else { return nil }
+
+        let lenses = device.constituentDevices
+        let switchOvers = device.virtualDeviceSwitchOverVideoZoomFactors.map { CGFloat(truncating: $0) }
+        let index = switchOvers.filter { device.videoZoomFactor >= $0 }.count
+        return lenses.indices.contains(index) ? lenses[index].uniqueID : nil
+    }
+    /// Debug aid for "the camera opens on the wrong lens" reports.
+    func traceLens(_ label: String, _ device: AVCaptureDevice) {
+        #if DEBUG
+        let lens = device.activePrimaryConstituent?.deviceType.rawValue ?? "none"
+        print("🔭 \(label) | deviceZoom=\(device.videoZoomFactor) shownZoom=\(attributes.zoomFactor) lens=\(lens) onExpectedLens=\(device.activePrimaryConstituent?.uniqueID == expectedLensID(of: device))")
+        #endif
     }
     /// Polls until the preview has rendered a frame newer than `staleFrame`,
     /// with a timeout in case frames never resume.
@@ -661,6 +757,7 @@ private extension CameraManager {
     func restoreDeviceStateAfterRestart() {
         guard isSessionStartRequested, let device = getCameraInput()?.device else { return }
 
+        if let avDevice = device as? AVCaptureDevice { traceLens("restarted", avDevice) }
         if device.videoZoomFactor != attributes.zoomFactor {
             try? setDeviceZoomFactor(attributes.zoomFactor, device)
         }

@@ -23,6 +23,11 @@ import AVKit
     /// While false, incoming frames are tracked in `currentFrame` but not
     /// drawn, so the view keeps showing the last frame it presented.
     var isPresentingFrames: Bool = true
+    /// Counts frames actually drawn, so callers can tell when a live frame
+    /// has replaced the one the view was holding.
+    private(set) var presentedFrameCount: Int = 0
+    /// True while the pause cover is the opaque one (see `showPauseCover`).
+    private(set) var pauseCoverConcealsLastFrame: Bool = false
 }
 
 // MARK: Setup
@@ -166,10 +171,21 @@ extension CameraMetalView {
     /// device has settled (see `isPresentingFrames`), and the scene may be a
     /// different one by then, so the cover dissolves into the live feed
     /// instead of the frame underneath it being swapped in one step.
-    func showPauseCover() {
-        guard let cameraView = parent?.cameraView, cameraView.viewWithTag(.pauseCoverTag) == nil else { return }
+    ///
+    /// - Parameter concealingLastFrame: Uses an opaque black cover instead.
+    ///   For pauses where the last frame must not be shown again in any form,
+    ///   such as the app leaving the foreground while pointed at something
+    ///   private. It replaces a blurred cover that is already up.
+    func showPauseCover(concealingLastFrame: Bool) {
+        guard let cameraView = parent?.cameraView else { return }
 
-        let cover = makePauseCover(width: cameraView.bounds.width)
+        if let existingCover = cameraView.viewWithTag(.pauseCoverTag) {
+            guard concealingLastFrame, !pauseCoverConcealsLastFrame else { return }
+            existingCover.removeFromSuperview()
+        }
+
+        let cover = concealingLastFrame ? makeOpaqueCover() : makePauseCover(width: cameraView.bounds.width)
+        pauseCoverConcealsLastFrame = concealingLastFrame
         cover.tag = .pauseCoverTag
         cover.frame = cameraView.bounds
         cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -186,6 +202,11 @@ extension CameraMetalView {
     }
 }
 private extension CameraMetalView {
+    func makeOpaqueCover() -> UIView {
+        let cover = UIView()
+        cover.backgroundColor = .black
+        return cover
+    }
     func makePauseCover(width: CGFloat) -> UIView {
         // A rendered blur rather than a UIVisualEffectView: it adds no tint to
         // the frame, and its opacity can be animated, which an effect view's cannot.
@@ -279,7 +300,9 @@ private extension CameraMetalView {
     }
     func redrawCameraView(_ frame: CIImage) {
         currentFrame = frame
-        if isPresentingFrames { draw() }
+        guard isPresentingFrames else { return }
+        draw()
+        presentedFrameCount &+= 1
     }
 }
 

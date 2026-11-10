@@ -19,6 +19,10 @@ import MijickTimer
     private(set) var timer: MTimer = .init(.camera)
     private(set) var recordingTime: MTime = .zero
     private(set) var firstRecordedFrame: UIImage?
+    /// True from `startRecording()` until the recording is stopped. The mic is
+    /// opened between the two, and a stop that arrives while it is still
+    /// opening must keep the recording from starting afterwards.
+    private var isRecordingRequested: Bool = false
 }
 
 // MARK: Setup
@@ -32,6 +36,7 @@ extension CameraManagerVideoOutput {
 // MARK: Reset
 extension CameraManagerVideoOutput {
     func reset() {
+        isRecordingRequested = false
         parent?.attributes.recordingOrientation = nil
         timer.reset()
     }
@@ -44,7 +49,7 @@ extension CameraManagerVideoOutput {
 
 // MARK: Toggle
 extension CameraManagerVideoOutput {
-    func toggleRecording() { switch output.isRecording {
+    func toggleRecording() { switch isRecordingRequested || output.isRecording {
         case true: stopRecording()
         case false: startRecording()
     }}
@@ -59,17 +64,27 @@ extension CameraManagerVideoOutput {
         // Mock recording for DEBUG/simulator mode
         startMockRecording()
         #else
-        guard let url = prepareUrlForVideoRecording() else { return }
+        guard !isRecordingRequested, let url = prepareUrlForVideoRecording() else { return }
 
-        // No session/device work happens here — the mic input was attached during
-        // setup and the audio session activated then. Any topology change on the
-        // running session at this point makes AVFoundation rebuild the capture
-        // pipeline, which shows as a frame gap and an exposure dip on the preview.
+        // The session's topology does not change here: the mic input was
+        // attached during setup. Adding it now would make AVFoundation rebuild
+        // the capture pipeline, which shows as a frame gap and an exposure dip
+        // on the preview. Only its connection is switched on, and the audio
+        // session activated, for the length of the recording.
+        isRecordingRequested = true
         parent.attributes.recordingOrientation = parent.attributes.deviceOrientation
-        configureOutput()
-        output.startRecording(to: url, recordingDelegate: self)
         startRecordingTimer()
         parent.objectWillChange.send()
+        Task {
+            await parent.prepareAudioForRecording()
+            guard isRecordingRequested else {
+                // Stopped while the mic was opening.
+                parent.releaseAudioAfterRecording()
+                return
+            }
+            configureOutput()
+            output.startRecording(to: url, recordingDelegate: self)
+        }
         #endif
     }
     
@@ -129,6 +144,7 @@ extension CameraManagerVideoOutput {
         #if targetEnvironment(simulator)
         stopMockRecording()
         #else
+        isRecordingRequested = false
         output.stopRecording()
         #endif
         parent.attributes.recordingOrientation = nil
@@ -163,6 +179,7 @@ extension CameraManagerVideoOutput: @preconcurrency AVCaptureFileOutputRecording
             // Covers recordings the system ends on its own (interruption, disk full)
             // without going through stopRecording().
             if !self.output.isRecording { parent.attributes.recordingOrientation = nil }
+            parent.releaseAudioAfterRecording()
 
             // Check for recording errors first
             if let nsError = error as NSError? {
@@ -175,9 +192,8 @@ extension CameraManagerVideoOutput: @preconcurrency AVCaptureFileOutputRecording
             
             // The mic input stays attached for the session's lifetime — detaching it
             // here would rebuild the running pipeline (frame gap + exposure dip on
-            // the preview). It is released in CameraManager.cancel() when the camera
-            // disappears; background audio keeps playing regardless because the
-            // audio session is mixable and automatic configuration is disabled.
+            // the preview). Only its connection was switched off above. The input
+            // is released in CameraManager.cancel() when the camera goes away.
 
             do {
                 let videoURL = try await prepareVideo(
