@@ -34,6 +34,9 @@ extension MockCaptureSession {
     func startRunning() { Task { @MainActor in
         _isRunning = true
     }}
+    func stopRunning() { Task { @MainActor in
+        _isRunning = false
+    }}
     func stopRunningAndReturnNewInstance() -> any CaptureSession {
         _isRunning = false
         return MockCaptureSession()

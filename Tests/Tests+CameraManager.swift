@@ -107,6 +107,64 @@ extension CameraManagerTests {
     }
 }
 
+// MARK: Pause / Resume
+extension CameraManagerTests {
+    @Test("Pause: Stops Session And Keeps Pipeline") func pauseKeepsPipeline() async throws {
+        try await setupCamera()
+        let session = cameraManager.captureSession as? MockCaptureSession
+        let outputCount = cameraManager.captureSession.outputs.count
+
+        cameraManager.pause(.screenHidden)
+        await waitForSessionQueue()
+
+        #expect(cameraManager.captureSession.isRunning == false)
+        #expect(cameraManager.captureSession as? MockCaptureSession === session)
+        #expect(cameraManager.captureSession.deviceInputs.count == 2)
+        #expect(cameraManager.captureSession.outputs.count == outputCount)
+    }
+    @Test("Resume: Restarts Session Without Rebuilding") func resumeRestartsSession() async throws {
+        try await setupCamera()
+        let outputCount = cameraManager.captureSession.outputs.count
+
+        cameraManager.pause(.screenHidden)
+        cameraManager.resume(.screenHidden)
+        await waitForSessionQueue()
+
+        #expect(cameraManager.captureSession.isRunning == true)
+        #expect(cameraManager.captureSession.deviceInputs.count == 2)
+        #expect(cameraManager.captureSession.outputs.count == outputCount)
+    }
+    @Test("Resume: Stays Stopped Until Every Pause Reason Is Lifted") func resumeNeedsEveryReasonLifted() async throws {
+        try await setupCamera()
+
+        cameraManager.pause(.screenHidden)
+        cameraManager.pauseSession()
+        cameraManager.resumeSession()
+        await waitForSessionQueue()
+        #expect(cameraManager.captureSession.isRunning == false)
+
+        cameraManager.resume(.screenHidden)
+        await waitForSessionQueue()
+        #expect(cameraManager.captureSession.isRunning == true)
+    }
+    @Test("Setup: Second Call Does Not Rebuild") func setupTwiceDoesNotRebuild() async throws {
+        try await setupCamera()
+        let outputCount = cameraManager.captureSession.outputs.count
+        let subviewCount = cameraManager.cameraView.subviews.count
+        try await cameraManager.setup()
+
+        #expect(cameraManager.captureSession.deviceInputs.count == 2)
+        #expect(cameraManager.captureSession.outputs.count == outputCount)
+        #expect(cameraManager.cameraView.subviews.count == subviewCount)
+    }
+    @Test("Pause Before Setup: Session Starts Stopped") func pauseBeforeSetup() async throws {
+        cameraManager.pauseSession()
+        try await setupCamera()
+
+        #expect(cameraManager.captureSession.isRunning == false)
+    }
+}
+
 // MARK: Set Camera Output
 extension CameraManagerTests {
     @Test("Set Camera Output") func setCameraOutput() async throws {
@@ -404,15 +462,15 @@ extension CameraManagerTests {
     @Test("Set Resolution") func setResolution() async throws {
         try await setupCamera()
 
-        cameraManager.setResolution(.hd1280x720)
+        try await cameraManager.setResolution(.hd1280x720)
         #expect(cameraManager.captureSession.sessionPreset == .hd1280x720)
         #expect(cameraManager.attributes.resolution == .hd1280x720)
 
-        cameraManager.setResolution(.hd1920x1080)
+        try await cameraManager.setResolution(.hd1920x1080)
         #expect(cameraManager.captureSession.sessionPreset == .hd1920x1080)
         #expect(cameraManager.attributes.resolution == .hd1920x1080)
 
-        cameraManager.setResolution(.cif352x288)
+        try await cameraManager.setResolution(.cif352x288)
         #expect(cameraManager.captureSession.sessionPreset == .cif352x288)
         #expect(cameraManager.attributes.resolution == .cif352x288)
     }
@@ -449,6 +507,12 @@ private extension CameraManagerTests {
         cameraManager.initialize(in: cameraView)
         try await cameraManager.setup()
         await Task.sleep(seconds: 10)
+    }
+}
+private extension CameraManagerTests {
+    /// Session starts and stops are queued; give them time to land.
+    func waitForSessionQueue() async {
+        await Task.sleep(seconds: 1)
     }
 }
 private extension CameraManagerTests {

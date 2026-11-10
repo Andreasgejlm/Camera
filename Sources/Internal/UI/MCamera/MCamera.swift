@@ -138,7 +138,6 @@ private extension MCamera {
 private extension MCamera {
     func onDisappear() {
         lockScreenOrientation(nil)
-        manager.cancel()
     }
     func onCapturedMediaChange(_ capturedMedia: MCameraMedia?) {
         guard let capturedMedia, config.capturedMediaScreen == nil else { return }
@@ -165,8 +164,15 @@ private extension MCamera {
 
 // MARK: Camera Screen
 private extension MCamera {
+    // Appearing and disappearing only resume and pause the session. Both also
+    // fire when another screen is pushed on top of the camera and popped again,
+    // and rebuilding the capture pipeline there stalls the navigation
+    // transition. The pipeline is torn down when the camera view is actually
+    // removed (see `CameraBridgeView.dismantleUIView`).
     func onCameraAppear() { Task {
+        manager.resume(.screenHidden)
         do {
+            // Builds the pipeline on first appearance; a no-op afterwards.
             try await manager.setup()
             lockScreenOrientation(.portrait)
             if let audioError = manager.audioSetupError {
@@ -175,7 +181,7 @@ private extension MCamera {
         } catch { print("(MijickCamera) ERROR DURING SETUP: \(error)") }
     }}
     func onCameraDisappear() {
-        manager.cancel()
+        manager.pause(.screenHidden)
     }
 }
 

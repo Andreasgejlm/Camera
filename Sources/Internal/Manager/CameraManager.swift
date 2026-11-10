@@ -42,6 +42,24 @@ import AVKit
     private(set) var motionManager: CameraManagerMotionManager = .init()
     private(set) var notificationCenterManager: CameraManagerNotificationCenter = .init()
     private(set) var macroStateObserver: MacroStateObserver = .init()
+
+    // MARK: Session Lifecycle
+    /// Every blocking session call (start, stop, audio session activation) runs
+    /// here, in order. `startRunning()`/`stopRunning()` and `setActive(_:)` block
+    /// their caller for hundreds of milliseconds, which on the main thread
+    /// freezes whatever animation is in flight. One serial queue also keeps a
+    /// quick stop-then-start (leave the camera and come straight back) from
+    /// being applied out of order.
+    private let sessionQueue = DispatchQueue(label: "com.mijick.camera.session", qos: .userInitiated)
+    private var setupState: SetupState = .idle
+    /// Why the session is currently held stopped. It runs only while this is empty.
+    private var pauseReasons: Set<SessionPauseReason> = []
+    /// The running state last sent to `sessionQueue`. Tracked here instead of
+    /// read from `captureSession.isRunning`, which lags behind queued work.
+    private var isSessionStartRequested: Bool = false
+    /// False until the first start is on `sessionQueue`; pausing before that
+    /// only records the reason, so a stop can never be queued ahead of it.
+    private var isFirstStartQueued: Bool = false
     
 //    //MARK: Macro
 //    private var zoomFactorObserver: NSKeyValueObservation?
@@ -77,7 +95,14 @@ extension CameraManager {
 
 // MARK: Setup
 extension CameraManager {
+    /// Builds the capture pipeline and starts the session. Runs once: later
+    /// calls return immediately, because a camera that merely left the screen
+    /// is paused and resumed (see `pause(_:)`), not rebuilt.
     func setup() async throws(MCameraError) {
+        guard setupState == .idle else { return }
+        setupState = .inProgress
+        defer { if setupState == .inProgress { setupState = .idle } }
+
         try await permissionsManager.requestAccess(parent: self)
 
         setupCameraLayer()
@@ -95,7 +120,7 @@ extension CameraManager {
         // mixable session does not interrupt other apps' audio. Done off the main
         // thread because activation is a blocking call and preview sample buffers
         // are delivered on the main queue.
-        Task.detached(priority: .userInitiated) {
+        sessionQueue.async {
             try? AVAudioSession.sharedInstance().setActive(true)
         }
         try setupDeviceInputs()
@@ -107,6 +132,7 @@ extension CameraManager {
         try cameraMetalView.setup(parent: self)
         cameraGridView.setup(parent: self)
 
+        setupState = .ready
         startSession()
     }
 }
@@ -310,7 +336,7 @@ private extension CameraManager {
         #if targetEnvironment(simulator)
         // Simplified session start for DEBUG/simulator mode
         print("📷 DEBUG MODE: Starting mock session")
-        try? await startCaptureSession()
+        await startCaptureSessionForTheFirstTime()
         
         // Only animate if cameraView is set
         if cameraView != nil {
@@ -321,7 +347,7 @@ private extension CameraManager {
         #else
         guard let device = getCameraInput()?.device else { return }
 
-        try await startCaptureSession()
+        await startCaptureSessionForTheFirstTime()
         reconfigureSessionIfNeeded()
         try setupDevice(device)
         resetAttributes(device: device)
@@ -362,8 +388,29 @@ private extension CameraManager {
         let audioInput = captureDeviceInputType.get(mediaType: .audio, position: .unspecified)
         return audioInput
     }
-    nonisolated func startCaptureSession() async throws {
-        await captureSession.startRunning()
+    func startCaptureSessionForTheFirstTime() async {
+        // From here on a pause queues its stop behind this start. A pause that
+        // arrived earlier (the camera left the screen, or the app the
+        // foreground, during setup) is applied once the start has finished.
+        isFirstStartQueued = true
+        isSessionStartRequested = true
+        await startCaptureSession(reactivatingAudio: false)
+        reconcileSessionState()
+    }
+    /// Starts the session on `sessionQueue` and returns once it is running.
+    /// - Parameter reactivatingAudio: Restores the mixable audio session that
+    ///   `stopCaptureSession()` gave up. Not needed for the first start, where
+    ///   `setup()` has already configured and activated it.
+    func startCaptureSession(reactivatingAudio: Bool) async {
+        let session = captureSession
+        await withCheckedContinuation { continuation in
+            sessionQueue.async {
+                if reactivatingAudio { try? Self.applyRecordingAudioSessionCategory() }
+                session.startRunning()
+                if reactivatingAudio { try? AVAudioSession.sharedInstance().setActive(true) }
+                continuation.resume()
+            }
+        }
     }
     func setupDevice(_ device: any CaptureDevice) throws {
         try device.lockForConfiguration()
@@ -386,20 +433,28 @@ extension CameraManager {
 
     func configureAudioSessionForRecording() throws(MCameraError) {
         do {
-            let audio = AVAudioSession.sharedInstance()
-            try audio.setAllowHapticsAndSystemSoundsDuringRecording(true)
-            // Configure with mixWithOthers to allow background music to continue playing
-            // defaultToSpeaker ensures recorded audio goes to speaker, not just receiver
-            try audio.setCategory(.playAndRecord, options: [.mixWithOthers, .allowBluetoothA2DP, .defaultToSpeaker])
-            // DO NOT call setActive(true) - let AVFoundation activate automatically
-            // This prevents interrupting background music
+            try Self.applyRecordingAudioSessionCategory()
         } catch {
             print("Audio session setup error: \(error)")
             throw MCameraError.failedToSetupAudioInput
         }
     }
 
+    /// Nonisolated so it can also run on `sessionQueue`: setting the category is
+    /// a blocking round trip to the audio server.
+    nonisolated static func applyRecordingAudioSessionCategory() throws {
+        let audio = AVAudioSession.sharedInstance()
+        try audio.setAllowHapticsAndSystemSoundsDuringRecording(true)
+        // Configure with mixWithOthers to allow background music to continue playing
+        // defaultToSpeaker ensures recorded audio goes to speaker, not just receiver
+        try audio.setCategory(.playAndRecord, options: [.mixWithOthers, .allowBluetoothA2DP, .defaultToSpeaker])
+    }
+
     private func deactivateAudioSession() {
+        Self.deactivateAudioSession()
+    }
+
+    nonisolated static func deactivateAudioSession() {
         do {
             let audio = AVAudioSession.sharedInstance()
             // Deactivate with notifyOthersOnDeactivation to allow background audio to resume
@@ -462,6 +517,9 @@ extension CameraManager {
 
 // MARK: Cancel
 extension CameraManager {
+    /// Tears the capture pipeline down for good. Called when the camera view is
+    /// removed from the hierarchy; a camera that only left the screen is paused
+    /// instead (see `pause(_:)`). The next `setup()` rebuilds everything.
     func cancel() {
         clearCurrentCapturedLivePhotoIfNeeded()
         removeAudioInput()
@@ -473,9 +531,35 @@ extension CameraManager {
         notificationCenterManager.reset()
         macroStateObserver.stop()
         attributes.isMacroMode = false
+        setupState = .idle
+        isSessionStartRequested = false
+        isFirstStartQueued = false
     }
 }
+
 // MARK: Pause / Resume Session
+extension CameraManager {
+    enum SetupState { case idle, inProgress, ready }
+    enum SessionPauseReason {
+        /// The camera screen is not visible, e.g. another screen is pushed on top of it.
+        case screenHidden
+        /// The host app called `pauseSession()`, e.g. because it entered the background.
+        case host
+    }
+
+    /// Stops the session for `reason` while keeping its inputs, outputs and
+    /// preview wiring intact, so `resume(_:)` restarts it without rebuilding
+    /// the pipeline. The reasons are independent: the session runs again only
+    /// once every reason it was paused for has been resumed.
+    func pause(_ reason: SessionPauseReason) {
+        pauseReasons.insert(reason)
+        reconcileSessionState()
+    }
+    func resume(_ reason: SessionPauseReason) {
+        pauseReasons.remove(reason)
+        reconcileSessionState()
+    }
+}
 public extension CameraManager {
     /// Stops the running capture session and relinquishes the audio session
     /// **without** tearing down inputs, outputs, or the preview layer.
@@ -485,26 +569,54 @@ public extension CameraManager {
     /// Camera app). Unlike `cancel()`, it keeps the same `captureSession` instance
     /// and its Metal preview wiring intact, so `resumeSession()` can restart it
     /// cheaply. Safe to call when the session is already stopped (no-op).
-    public func pauseSession() {
-        guard let session = captureSession as? AVCaptureSession, session.isRunning else { return }
+    func pauseSession() { pause(.host) }
+
+    /// Lifts a `pauseSession()`. The session restarts, with its (mixable) audio
+    /// session, unless the camera screen is itself off screen, in which case it
+    /// restarts when the screen returns. Safe to call when already running (no-op).
+    func resumeSession() { resume(.host) }
+}
+private extension CameraManager {
+    func reconcileSessionState() {
+        guard setupState == .ready, isFirstStartQueued else { return }
+
+        let shouldRun = pauseReasons.isEmpty
+        guard shouldRun != isSessionStartRequested else { return }
+        isSessionStartRequested = shouldRun
+
+        if shouldRun { restartCaptureSession() }
+        else { stopCaptureSession() }
+    }
+    func stopCaptureSession() {
         attributes.lightMode = .off
         videoOutput.reset()
-        deactivateAudioSession()
-        // stopRunning() blocks until the session tears down its connection to the
-        // hardware; keep it off the main thread as elsewhere in the manager.
-        Task.detached(priority: .userInitiated) {
+        motionManager.reset()
+
+        let session = captureSession
+        sessionQueue.async {
             session.stopRunning()
+            // After the session, so the audio session has no running I/O left.
+            Self.deactivateAudioSession()
         }
     }
+    func restartCaptureSession() {
+        motionManager.setup(parent: self)
+        Task {
+            await startCaptureSession(reactivatingAudio: true)
+            restoreDeviceStateAfterRestart()
+        }
+    }
+    /// The device keeps its configuration across a stop/start of the same
+    /// session, so this normally does nothing. It only touches the device when
+    /// zoom or frame rate came back different from what the UI shows.
+    func restoreDeviceStateAfterRestart() {
+        guard isSessionStartRequested, let device = getCameraInput()?.device else { return }
 
-    /// Restarts a session previously stopped by `pauseSession()` and reactivates
-    /// the (mixable) audio session. Safe to call when already running (no-op).
-    public func resumeSession() {
-        guard let session = captureSession as? AVCaptureSession, !session.isRunning else { return }
-        try? configureAudioSessionForRecording()
-        Task.detached(priority: .userInitiated) {
-            session.startRunning()
-            try? AVAudioSession.sharedInstance().setActive(true)
+        if device.videoZoomFactor != attributes.zoomFactor {
+            try? setDeviceZoomFactor(attributes.zoomFactor, device)
+        }
+        if device.activeVideoMaxFrameDuration.timescale != attributes.frameRate {
+            try? setDeviceFrameRate(attributes.frameRate, device)
         }
     }
 }

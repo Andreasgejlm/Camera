@@ -23,6 +23,12 @@ extension CameraBridgeView {
         return inputView
     }
     func updateUIView(_ uiView: UIViewType, context: Context) {}
+    /// Called when the camera view leaves the hierarchy for good, unlike
+    /// `onDisappear`, which also fires while it is merely covered by a pushed
+    /// screen. This is the point where the capture pipeline is released.
+    static func dismantleUIView(_ uiView: UIViewType, coordinator: Coordinator) {
+        coordinator.parent.cameraManager.cancel()
+    }
     func makeCoordinator() -> Coordinator { .init(self) }
 }
 private extension CameraBridgeView {
