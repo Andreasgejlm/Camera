@@ -161,27 +161,58 @@ private extension CameraMetalView {
 
 // MARK: Session Pause
 extension CameraMetalView {
-    /// Blurs the preview while the session is stopped. The Metal view keeps
-    /// showing its last frame, and without a cover that stale frame snaps to
-    /// the live feed (at a not yet settled exposure) when the session restarts.
+    /// Covers the preview with a blurred copy of its last frame while the
+    /// session is stopped. On restart the preview holds that frame until the
+    /// device has settled (see `isPresentingFrames`), and the scene may be a
+    /// different one by then, so the cover dissolves into the live feed
+    /// instead of the frame underneath it being swapped in one step.
     func showPauseCover() {
         guard let cameraView = parent?.cameraView, cameraView.viewWithTag(.pauseCoverTag) == nil else { return }
 
-        // The thinnest dark material: same blur, least darkening of the frame.
-        let cover = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+        let cover = makePauseCover(width: cameraView.bounds.width)
         cover.tag = .pauseCoverTag
         cover.frame = cameraView.bounds
         cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         cameraView.addSubview(cover)
     }
     func hidePauseCover() {
-        guard let cover = parent?.cameraView?.viewWithTag(.pauseCoverTag) as? UIVisualEffectView else { return }
+        guard let cover = parent?.cameraView?.viewWithTag(.pauseCoverTag) else { return }
 
         // Untagged first, so a pause during the fade gets a fresh cover.
         cover.tag = 0
-        UIView.animate(withDuration: 0.3, animations: { cover.effect = nil }) { _ in
+        UIView.animate(withDuration: 0.3, animations: { cover.alpha = 0 }) { _ in
             cover.removeFromSuperview()
         }
+    }
+}
+private extension CameraMetalView {
+    func makePauseCover(width: CGFloat) -> UIView {
+        // A rendered blur rather than a UIVisualEffectView: it adds no tint to
+        // the frame, and its opacity can be animated, which an effect view's cannot.
+        guard let snapshot = makeBlurredSnapshot(width: width) else {
+            return UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+        }
+
+        let imageView = UIImageView(image: snapshot)
+        imageView.contentMode = .scaleAspectFill
+        imageView.clipsToBounds = true
+        return imageView
+    }
+    /// Rendered at point size, not sensor size: the result is blurred anyway
+    /// and this runs on the main thread.
+    func makeBlurredSnapshot(width: CGFloat) -> UIImage? {
+        guard let frame = currentFrame, let ciContext, frame.extent.width > 0, width > 0 else { return nil }
+
+        let scale = width / frame.extent.width
+        let scaledFrame = frame.transformed(by: .init(scaleX: scale, y: scale))
+        let blurredFrame = scaledFrame
+            .clampedToExtent()
+            .applyingGaussianBlur(sigma: 30)
+            .cropped(to: scaledFrame.extent)
+
+        // Same color space the preview is drawn in, so the cover matches it.
+        guard let cgImage = ciContext.createCGImage(blurredFrame, from: scaledFrame.extent, format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB()) else { return nil }
+        return UIImage(cgImage: cgImage)
     }
 }
 
