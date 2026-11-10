@@ -627,14 +627,14 @@ private extension CameraManager {
     /// The first frames after a restart are not the final picture: a multi-lens
     /// device may still switch its active lens, and exposure and focus are
     /// still converging, which shows as a jump if revealed. Waits until the
-    /// device has reported itself settled for 200 ms, or gives up after 800 ms.
+    /// device has reported itself settled for 100 ms, or gives up after 400 ms.
     func waitForDeviceToSettle() async {
         guard let device = getCameraInput()?.device as? AVCaptureDevice else { return }
 
-        let deadline = ContinuousClock.now + .milliseconds(800)
+        let deadline = ContinuousClock.now + .milliseconds(400)
         var activeLens = device.activePrimaryConstituent?.uniqueID
         var settledPolls = 0
-        while ContinuousClock.now < deadline, settledPolls < 6 {
+        while ContinuousClock.now < deadline, settledPolls < 3 {
             try? await Task.sleep(nanoseconds: 33_000_000)
 
             let currentLens = device.activePrimaryConstituent?.uniqueID
