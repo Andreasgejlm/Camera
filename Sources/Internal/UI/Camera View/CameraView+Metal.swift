@@ -164,8 +164,8 @@ extension CameraMetalView {
     func showPauseCover() {
         guard let cameraView = parent?.cameraView, cameraView.viewWithTag(.pauseCoverTag) == nil else { return }
 
-        let cover = UIVisualEffectView(effect: UIBlurEffect(style: .regular))
-        cover.overrideUserInterfaceStyle = .dark
+        // The thinnest dark material: same blur, least darkening of the frame.
+        let cover = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
         cover.tag = .pauseCoverTag
         cover.frame = cameraView.bounds
         cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]

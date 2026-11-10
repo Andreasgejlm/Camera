@@ -608,11 +608,32 @@ private extension CameraManager {
             restoreDeviceStateAfterRestart()
 
             await waitForFirstFrame(after: staleFrame)
-            // The first frames are still converging on exposure and focus.
-            await Task.sleep(seconds: 0.1)
+            await waitForDeviceToSettle()
             // Paused again in the meantime: that pause owns the cover now.
             guard isSessionStartRequested else { return }
             cameraMetalView.hidePauseCover()
+        }
+    }
+    /// The first frames after a restart are not the final picture: a multi-lens
+    /// device may still switch its active lens, and exposure and focus are
+    /// still converging, which shows as a jump if revealed. Waits until the
+    /// device has reported itself settled for 200 ms, or gives up after 800 ms.
+    func waitForDeviceToSettle() async {
+        guard let device = getCameraInput()?.device as? AVCaptureDevice else { return }
+
+        let deadline = ContinuousClock.now + .milliseconds(800)
+        var activeLens = device.activePrimaryConstituent?.uniqueID
+        var settledPolls = 0
+        while ContinuousClock.now < deadline, settledPolls < 6 {
+            try? await Task.sleep(nanoseconds: 33_000_000)
+
+            let currentLens = device.activePrimaryConstituent?.uniqueID
+            let isSettled = currentLens == activeLens
+                && !device.isAdjustingExposure
+                && !device.isAdjustingFocus
+                && !device.isRampingVideoZoom
+            settledPolls = isSettled ? settledPolls + 1 : 0
+            activeLens = currentLens
         }
     }
     /// Polls until the preview has rendered a frame newer than `staleFrame`,
