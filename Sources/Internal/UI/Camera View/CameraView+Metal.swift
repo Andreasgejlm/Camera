@@ -20,6 +20,9 @@ import AVKit
     private(set) var currentFrame: CIImage?
     private(set) var focusIndicator: CameraFocusIndicatorView = .init()
     private(set) var isAnimating: Bool = false
+    /// While false, incoming frames are tracked in `currentFrame` but not
+    /// drawn, so the view keeps showing the last frame it presented.
+    var isPresentingFrames: Bool = true
 }
 
 // MARK: Setup
@@ -245,7 +248,7 @@ private extension CameraMetalView {
     }
     func redrawCameraView(_ frame: CIImage) {
         currentFrame = frame
-        draw()
+        if isPresentingFrames { draw() }
     }
 }
 

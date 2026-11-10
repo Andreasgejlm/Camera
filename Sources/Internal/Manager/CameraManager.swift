@@ -534,6 +534,7 @@ extension CameraManager {
         setupState = .idle
         isSessionStartRequested = false
         isFirstStartQueued = false
+        cameraMetalView.isPresentingFrames = true
     }
 }
 
@@ -603,14 +604,23 @@ private extension CameraManager {
     func restartCaptureSession() {
         motionManager.setup(parent: self)
         let staleFrame = cameraMetalView.currentFrame
+        // A restarting session delivers frames that are not fit to show: a
+        // black one while the hardware comes up, then lens, exposure and focus
+        // changes. They are visible even through the blur, so the preview
+        // holds its last frame until the device has settled.
+        cameraMetalView.isPresentingFrames = false
         Task {
             await startCaptureSession(reactivatingAudio: true)
             restoreDeviceStateAfterRestart()
 
             await waitForFirstFrame(after: staleFrame)
             await waitForDeviceToSettle()
-            // Paused again in the meantime: that pause owns the cover now.
+            // Paused again in the meantime: that pause owns the cover now, and
+            // the restart that follows it resumes drawing.
             guard isSessionStartRequested else { return }
+            cameraMetalView.isPresentingFrames = true
+            // Let a live frame replace the held one before the blur lifts.
+            await Task.sleep(seconds: 0.07)
             cameraMetalView.hidePauseCover()
         }
     }
