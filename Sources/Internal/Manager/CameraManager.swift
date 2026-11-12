@@ -284,17 +284,20 @@ private extension CameraManager {
     #endif
     func setupDeviceInputs() throws(MCameraError) {
         try captureSession.add(input: getCameraInput())
-        // The mic input is attached here, before the session starts running.
-        // Attaching it later (at recording time) commits a topology change to a
-        // running session, which makes AVFoundation rebuild the capture pipeline —
+        // The mic input is attached here, before the session starts running, if
+        // microphone access has been granted. (Granted later, it is attached by
+        // `attachAudioInputAfterSetup`, with the session stopped.)
+        // Attaching it to a running session (at recording time) commits a
+        // topology change, which makes AVFoundation rebuild the capture pipeline —
         // visible as a frame gap and an exposure dip on the preview. An attached
         // mic is not an open one: its connection stays off, and the audio session
         // untouched, until a recording starts (see `configureAudioSession`).
         do {
             try attachAudioInput()
             // Verify the input was actually added to the session (canAddInput may
-            // have silently returned false inside captureSession.add).
-            if attributes.isAudioSourceAvailable, audioInput == nil {
+            // have silently returned false inside captureSession.add). No access
+            // is not a failure: the camera works, and videos are silent.
+            if attributes.isAudioSourceAvailable, permissionsManager.isMicrophoneAuthorized, audioInput == nil {
                 audioSetupError = .failedToSetupAudioInput
             }
         } catch {
@@ -482,6 +485,9 @@ extension CameraManager {
     /// is being configured (not running) — see the comment in `setupDeviceInputs`.
     func attachAudioInput() throws(MCameraError) {
         guard attributes.isAudioSourceAvailable else { return }
+        // Without access there is no mic on the session at all; see
+        // `requestMicrophoneAccess()`.
+        guard permissionsManager.isMicrophoneAuthorized else { return }
         guard audioInput == nil else { return } // Already added
         guard let input = getAudioInput() else {
             throw MCameraError.failedToSetupAudioInput
@@ -506,6 +512,73 @@ extension CameraManager {
 
         captureSession.remove(input: input)
         self.audioInput = nil
+    }
+}
+
+// MARK: Microphone access
+extension CameraManager {
+    /// Asks for the microphone if the person has not answered yet and, once it
+    /// is allowed, attaches it. Returns whether the next recording will have
+    /// sound.
+    ///
+    /// Setup does not ask: a camera opened to take photos has no reason to, and
+    /// a refusal only means that videos are recorded without sound. The host
+    /// calls this when the person first goes to record a video.
+    func requestMicrophoneAccess() async -> Bool {
+        guard attributes.isAudioSourceAvailable else { return false }
+        // The prompt takes the app out of the foreground, and a host pauses the
+        // session for that. A format change still in flight finishes first.
+        do { try await waitForFormatChangesToFinish() } catch { return false }
+        guard await permissionsManager.requestMicrophoneAccess() else { return false }
+        // Not built yet: setup attaches the mic, now that access is granted.
+        guard setupState == .ready else { return true }
+        await attachAudioInputAfterSetup()
+        return audioInput != nil
+    }
+}
+private extension CameraManager {
+    func waitForFormatChangesToFinish() async throws {
+        while pendingResolution != nil || isPerformingFormatTransition {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    /// Attaches the mic to a session that was set up without it, because access
+    /// was granted afterwards.
+    ///
+    /// The session is stopped for it and started again, so the mic joins in the
+    /// same order as at setup: attached while the session is not running, with
+    /// its connection switched off before the start. That order is what leaves
+    /// the audio session untouched (other apps' audio keeps playing) and spares
+    /// the preview a visible pipeline rebuild. The restart is covered like any
+    /// other pause.
+    func attachAudioInputAfterSetup() async {
+        guard audioInput == nil, permissionsManager.isMicrophoneAuthorized else { return }
+        // Stopping the session would end a recording. It keeps running without
+        // sound, and the next setup attaches the mic. (`recordingOrientation`
+        // is set from the moment a recording is requested until it has ended.)
+        guard attributes.recordingOrientation == nil else { return }
+
+        pause(.microphoneAttach)
+        await waitForQueuedSessionWork()
+        // The camera may have been torn down while the stop was pending.
+        if setupState == .ready {
+            do {
+                try attachAudioInput()
+                setRecordingAudioConnectionEnabled(false)
+            } catch {
+                audioSetupError = error
+            }
+        }
+        resume(.microphoneAttach)
+    }
+
+    /// Returns once everything queued on `sessionQueue` so far has run, so a
+    /// stop requested just before has taken effect.
+    func waitForQueuedSessionWork() async {
+        await withCheckedContinuation { continuation in
+            sessionQueue.async { continuation.resume() }
+        }
     }
 }
 
@@ -594,6 +667,8 @@ extension CameraManager {
         case screenHidden
         /// The host app called `pauseSession()`, e.g. because it entered the background.
         case host
+        /// The mic is being attached after setup (see `attachAudioInputAfterSetup`).
+        case microphoneAttach
     }
 
     /// Stops the session for `reason` while keeping its inputs, outputs and

@@ -101,6 +101,15 @@ public extension MCameraScreen {
     func stopRecording() { cameraManager.stopRecording() }
 
     /**
+     Ask for microphone access if the person has not answered yet.
+
+     The camera does not ask for the microphone when it starts. Call this when the person first goes to record a video, for example on switching to video output. Once access is granted the microphone is attached and recordings have sound. Until then, and after a refusal, videos are recorded without sound and the camera works as usual.
+
+     - Returns: Whether the next recording will have sound.
+     */
+    func requestMicrophoneAccess() async -> Bool { await cameraManager.requestMicrophoneAccess() }
+
+    /**
      Set the output type of the camera.
 
      For available options, please refer to the ``CameraOutputType`` documentation.

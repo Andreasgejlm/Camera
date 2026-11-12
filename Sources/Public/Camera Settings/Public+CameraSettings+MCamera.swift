@@ -167,7 +167,9 @@ public extension MCamera {
     /**
      Definies whether the audio source is available.
 
-     If disabled, the camera will not record audio, and will not ask for permission to access the microphone.
+     If disabled, the camera will not record audio.
+
+     - note: The camera never asks for microphone access by itself. Ask with ``MCameraScreen/requestMicrophoneAccess()`` when the person first goes to record a video; without access, videos are recorded without sound.
      */
     func setAudioAvailability(_ isAvailable: Bool) -> Self { manager.attributes.isAudioSourceAvailable = isAvailable; return self }
 
