@@ -584,21 +584,55 @@ private extension CameraManager {
 
 // MARK: Recording audio
 extension CameraManager {
-    /// Opens the mic for a recording by switching the movie output's audio
-    /// connection on, which is when the capture session configures and
-    /// activates the audio session. The mic input itself has been attached
-    /// since setup, so the running session's topology does not change here and
-    /// the preview is not rebuilt.
+    /// Opens the mic for a recording: sets the audio session up for
+    /// recording, then switches the movie output's audio connection on. The
+    /// mic input itself has been attached since setup, so the running
+    /// session's topology does not change here and the preview is not rebuilt.
     func prepareAudioForRecording() async {
         guard audioInput != nil else { return }
 
         let connection = UncheckedSendableBox(value: videoOutput.output.connection(with: .audio))
         await withCheckedContinuation { continuation in
             sessionQueue.async {
+                Self.activateAudioSessionForRecording()
                 connection.value?.isEnabled = true
                 Self.traceAudioSession("recording audio on")
                 continuation.resume()
             }
+        }
+    }
+    /// Starts the audio session for recording before the mic's connection is
+    /// switched on, when no other app is playing audio.
+    ///
+    /// With nothing playing, the audio hardware is idle. Left to the capture
+    /// session, it is started only when the connection is switched on, which
+    /// happens alongside the start of the recording, and the first recording
+    /// after the camera started was written without an audio track (OneLens
+    /// issue #128). `setActive(true)` returns once the session is active, so
+    /// the recording that follows starts with the hardware running.
+    ///
+    /// When another app is playing (music, a podcast), the hardware is already
+    /// running and the capture session's own configuration gives the first
+    /// recording its sound; doing it here as well reconfigures the route a
+    /// second time, which other apps' audio hears as a stutter. Nothing is done
+    /// then. The configuration is the one the capture session applies itself
+    /// (`automaticallyConfiguresApplicationAudioSession` with
+    /// `configuresApplicationAudioSessionToMixWithOthers`), so its own step is
+    /// no change. The camera still leaves the audio session alone until a
+    /// recording starts.
+    nonisolated static func activateAudioSessionForRecording() {
+        let audioSession = AVAudioSession.sharedInstance()
+        guard !audioSession.isOtherAudioPlaying else { return }
+        do {
+            if audioSession.category != .playAndRecord || audioSession.mode != .videoRecording || !audioSession.categoryOptions.contains(.mixWithOthers) {
+                try audioSession.setCategory(.playAndRecord, mode: .videoRecording, options: [.mixWithOthers, .defaultToSpeaker])
+            }
+            try audioSession.setActive(true)
+            traceAudioSession("recording audio session ready")
+        } catch {
+            // The capture session still configures it when the connection is
+            // switched on; at worst this recording is the silent one.
+            traceAudioSession("recording audio session setup failed", error: error)
         }
     }
     /// Closes the mic again once a recording has ended.
