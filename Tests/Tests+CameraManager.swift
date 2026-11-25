@@ -273,6 +273,66 @@ extension CameraManagerTests {
     }
 }
 
+// MARK: Focus & Exposure Lock
+extension CameraManagerTests {
+    @Test("Lock Focus And Exposure") func lockFocusAndExposure() async throws {
+        try await setupCamera()
+
+        let point = CGPoint(x: 400, y: 300)
+        try cameraManager.lockFocusAndExposure(at: point)
+        #expect(cameraManager.attributes.isFocusExposureLocked == true)
+        #expect(currentDevice.focusPointOfInterest == cameraManager.convertTouchPointToFocusPoint(point))
+        #expect(currentDevice.exposurePointOfInterest == cameraManager.convertTouchPointToFocusPoint(point))
+        #expect(currentDevice.focusMode == .autoFocus)
+        #expect(currentDevice.exposureMode == .autoExpose)
+        #expect(currentDevice.isSubjectAreaChangeMonitoringEnabled == false)
+        #expect(cameraManager.cameraMetalView.focusIndicatorView?.isLocked == true)
+
+        // A change of scene does not undo the lock.
+        cameraManager.resetCameraFocusToContinuousAutoFocus()
+        #expect(currentDevice.focusMode == .autoFocus)
+        #expect(cameraManager.attributes.isFocusExposureLocked == true)
+    }
+    @Test("Tap Ends Focus And Exposure Lock") func tapEndsLock() async throws {
+        try await setupCamera()
+
+        try cameraManager.lockFocusAndExposure(at: .init(x: 400, y: 300))
+        try cameraManager.setCameraFocus(at: .init(x: 100, y: 100))
+        #expect(cameraManager.attributes.isFocusExposureLocked == false)
+        #expect(currentDevice.isSubjectAreaChangeMonitoringEnabled == true)
+        #expect(cameraManager.cameraMetalView.focusIndicatorView?.isLocked == false)
+        #expect(cameraManager.cameraView.subviews.filter { $0.tag == .focusIndicatorTag }.count == 1)
+    }
+    @Test("Release Focus And Exposure Lock") func releaseLock() async throws {
+        try await setupCamera()
+
+        try cameraManager.lockFocusAndExposure(at: .init(x: 400, y: 300))
+        cameraManager.releaseFocusExposureLock()
+        #expect(cameraManager.attributes.isFocusExposureLocked == false)
+        #expect(currentDevice.focusMode == .continuousAutoFocus)
+        #expect(currentDevice.exposureMode == .continuousAutoExposure)
+        #expect(cameraManager.cameraMetalView.isFocusIndicatorVisible == false)
+    }
+    @Test("Focus And Exposure Lock Respects Disabled Controls") func lockDisabled() async throws {
+        try await setupCamera()
+
+        try cameraManager.lockFocusAndExposure(at: .init(x: 400, y: 300))
+        cameraManager.setFocusExposureControlsEnabled(false)
+        #expect(cameraManager.attributes.isFocusExposureLocked == false)
+
+        try cameraManager.lockFocusAndExposure(at: .init(x: 400, y: 300))
+        #expect(cameraManager.attributes.isFocusExposureLocked == false)
+    }
+    @Test("Camera Flip Ends Focus And Exposure Lock") func flipEndsLock() async throws {
+        try await setupCamera()
+
+        try cameraManager.lockFocusAndExposure(at: .init(x: 400, y: 300))
+        try await cameraManager.setCameraPosition(.front)
+        #expect(cameraManager.attributes.isFocusExposureLocked == false)
+        #expect(cameraManager.cameraMetalView.isFocusIndicatorVisible == false)
+    }
+}
+
 // MARK: Set Flash Mode
 extension CameraManagerTests {
     @Test("Set Flash Mode") func setFlashMode() async throws {

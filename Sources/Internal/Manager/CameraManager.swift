@@ -61,6 +61,13 @@ import AVKit
     /// only records the reason, so a stop can never be queued ahead of it.
     private var isFirstStartQueued: Bool = false
     private var audioRouteObserver: (any NSObjectProtocol)?
+
+    // MARK: Focus & Exposure
+    /// Exposure change from dragging the sun next to the focus square, in EV,
+    /// added on top of `attributes.cameraExposure.targetBias`. Kept out of
+    /// `attributes` so a drag does not re-render the host at frame rate.
+    var exposureBiasOffset: Float = 0
+    var exposureBiasOffsetAtDragStart: Float = 0
     
 //    //MARK: Macro
 //    private var zoomFactorObserver: NSKeyValueObservation?
@@ -1028,6 +1035,7 @@ extension CameraManager {
 
         let device = getCameraInput()?.device
         resetAttributes(device: device)
+        cameraMetalView.hideFocusIndicator()
         photoOutput.updateMaxPhotoDimensions()
 
         if position == .front {
@@ -1104,50 +1112,6 @@ private extension CameraManager {
         try device.lockForConfiguration()
         device.setZoomFactor(zoomFactor)
         device.unlockForConfiguration()
-    }
-}
-
-// MARK: Set Camera Focus
-extension CameraManager {
-    func setCameraFocus(at touchPoint: CGPoint) throws {
-        guard let device = getCameraInput()?.device, !isChanging else { return }
-
-        let focusPoint = convertTouchPointToFocusPoint(touchPoint)
-        try setDeviceCameraFocus(focusPoint, device)
-        cameraMetalView.performCameraFocusAnimation(touchPoint: touchPoint)
-    }
-}
-private extension CameraManager {
-    func convertTouchPointToFocusPoint(_ touchPoint: CGPoint) -> CGPoint { .init(
-        x: touchPoint.y / cameraView.frame.height,
-        y: 1 - touchPoint.x / cameraView.frame.width
-    )}
-    func setDeviceCameraFocus(_ focusPoint: CGPoint, _ device: any CaptureDevice) throws {
-        try device.lockForConfiguration()
-        device.setFocusPointOfInterest(focusPoint)
-        device.setExposurePointOfInterest(focusPoint)
-        device.isSubjectAreaChangeMonitoringEnabled = true
-        device.unlockForConfiguration()
-        print("🎯 TAP focus set at \(focusPoint) | focusMode=\(device.focusMode.rawValue) monitoring=\(device.isSubjectAreaChangeMonitoringEnabled) focusPOISupported=\(device.isFocusPointOfInterestSupported)")
-    }
-}
-
-// MARK: Reset Camera Focus
-extension CameraManager {
-    func resetCameraFocusToContinuousAutoFocus() {
-        guard let device = getCameraInput()?.device else {
-            print("🎯 RESET skipped: no camera input device")
-            return
-        }
-        guard device.isSubjectAreaChangeMonitoringEnabled else {
-            print("🎯 RESET skipped: monitoring already off (focusMode=\(device.focusMode.rawValue))")
-            return
-        }
-
-        try? device.lockForConfiguration()
-        device.resetFocusToContinuousAutoFocus()
-        device.unlockForConfiguration()
-        print("🎯 RESET to continuousAutoFocus | focusMode=\(device.focusMode.rawValue) monitoring=\(device.isSubjectAreaChangeMonitoringEnabled)")
     }
 }
 
@@ -1280,30 +1244,6 @@ private extension CameraManager {
     }
 }
 
-// MARK: Set Exposure Target Bias
-extension CameraManager {
-    func setExposureTargetBias(_ exposureTargetBias: Float) throws {
-        guard let device = getCameraInput()?.device, exposureTargetBias != attributes.cameraExposure.targetBias, !isChanging else { return }
-
-        try setDeviceExposureTargetBias(exposureTargetBias, device)
-        attributes.cameraExposure.targetBias = device.exposureTargetBias
-    }
-}
-private extension CameraManager {
-    func setDeviceExposureTargetBias(_ exposureTargetBias: Float, _ device: any CaptureDevice) throws {
-        try device.lockForConfiguration()
-        device.setExposureTargetBias(exposureTargetBias) { [weak self] timestamp in
-            // Capture self weakly, and read the device's current bias on the main actor
-            Task { @MainActor [weak self] in
-                guard let self = self,
-                      let currentDevice = self.getCameraInput()?.device else { return }
-                self.attributes.cameraExposure.targetBias = currentDevice.exposureTargetBias
-            }
-        }
-        device.unlockForConfiguration()
-    }
-}
-
 // MARK: Set HDR Mode
 extension CameraManager {
     func setHDRMode(_ hdrMode: CameraHDRMode) throws {
@@ -1425,7 +1365,7 @@ extension CameraManager {
     var hasFlash: Bool { getCameraInput()?.device.hasFlash ?? false }
     var hasLight: Bool { getCameraInput()?.device.hasTorch ?? false }
 }
-private extension CameraManager {
+extension CameraManager {
     var isChanging: Bool { cameraMetalView.isAnimating }
 }
 
@@ -1443,6 +1383,9 @@ extension CameraManager {
         newAttributes.zoomFactor = device.videoZoomFactor
         newAttributes.lightMode = device.lightMode
         newAttributes.hdrMode = device.hdrMode
+        // Focus and exposure belong to the device that was replaced.
+        newAttributes.isFocusExposureLocked = false
+        exposureBiasOffset = 0
 
         attributes = newAttributes
     }

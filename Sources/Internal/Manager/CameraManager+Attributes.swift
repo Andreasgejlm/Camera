@@ -41,4 +41,10 @@ struct CameraManagerAttributes {
     var userBlockedScreenRotation: Bool = false
     var isMacroMode: Bool = false
     var isAutoMacroModeEnabled: Bool = true
+    /// True while focus and exposure are held at a point the user long-pressed
+    /// (AE/AF Lock). A tap, a camera flip or `releaseFocusExposureLock()` ends it.
+    var isFocusExposureLocked: Bool = false
+    /// Whether long-press to lock focus and exposure, and dragging the exposure
+    /// sun next to the focus square, are available.
+    var isFocusExposureControlsEnabled: Bool = true
 }

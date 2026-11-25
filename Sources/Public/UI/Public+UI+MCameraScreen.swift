@@ -242,6 +242,20 @@ public extension MCameraScreen {
      - note: The active format must support stabilization; unsupported modes are ignored. Use `.off` to disable.
      */
     func setVideoStabilizationMode(_ mode: AVCaptureVideoStabilizationMode) { cameraManager.setVideoStabilizationMode(mode) }
+
+    /**
+     Ends a focus & exposure lock (AE/AF Lock) and returns to continuous autofocus and autoexposure.
+
+     A lock starts when the user long-presses the camera preview, and also ends on the next tap or a camera flip. Does nothing when nothing is locked.
+     */
+    func releaseFocusExposureLock() { cameraManager.releaseFocusExposureLock() }
+
+    /**
+     Set whether the user can long-press the preview to lock focus and exposure, and drag the sun next to the focus square to change the exposure.
+
+     Enabled by default. Turning it off also ends a lock that is in place. Tap to focus is not affected.
+     */
+    func setFocusExposureControlsEnabled(_ isEnabled: Bool) { cameraManager.setFocusExposureControlsEnabled(isEnabled) }
 }
 
 // MARK: Attributes
@@ -273,6 +287,9 @@ public extension MCameraScreen {
     }
     var isMacroMode: Bool { cameraManager.attributes.isMacroMode }
     var isAutoMacroModeEnabled: Bool { cameraManager.attributes.isAutoMacroModeEnabled }
+    /// True while focus and exposure are locked after a long press on the preview (AE/AF Lock), for showing a lock label.
+    var isFocusExposureLocked: Bool { cameraManager.attributes.isFocusExposureLocked }
+    var isFocusExposureControlsEnabled: Bool { cameraManager.attributes.isFocusExposureControlsEnabled }
 
 }
 public extension MCameraScreen {

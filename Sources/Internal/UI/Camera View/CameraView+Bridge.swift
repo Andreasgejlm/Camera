@@ -19,6 +19,7 @@ extension CameraBridgeView {
     func makeUIView(context: Context) -> some UIView {
         cameraManager.initialize(in: inputView)
         setupTapGesture(context)
+        setupLongPressGesture(context)
         setupPinchGesture(context)
         return inputView
     }
@@ -35,6 +36,13 @@ private extension CameraBridgeView {
     func setupTapGesture(_ context: Context) {
         let tapRecognizer = UITapGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.onTapGesture))
         inputView.addGestureRecognizer(tapRecognizer)
+    }
+    func setupLongPressGesture(_ context: Context) {
+        // A long press that is recognised makes the tap fail, so the two
+        // never both fire for one touch.
+        let longPressRecognizer = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.onLongPressGesture))
+        longPressRecognizer.minimumPressDuration = 0.5
+        inputView.addGestureRecognizer(longPressRecognizer)
     }
     func setupPinchGesture(_ context: Context) {
         let pinchRecognizer = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.onPinchGesture))
@@ -60,6 +68,16 @@ extension CameraBridgeView.Coordinator {
             let touchPoint = tap.location(in: parent.inputView)
             try parent.cameraManager.setCameraFocus(at: touchPoint)
         } catch {}
+    }
+}
+
+// MARK: On Long Press
+extension CameraBridgeView.Coordinator {
+    @MainActor @objc func onLongPressGesture(_ longPress: UILongPressGestureRecognizer) {
+        guard longPress.state == .began else { return }
+
+        let touchPoint = longPress.location(in: parent.inputView)
+        try? parent.cameraManager.lockFocusAndExposure(at: touchPoint)
     }
 }
 

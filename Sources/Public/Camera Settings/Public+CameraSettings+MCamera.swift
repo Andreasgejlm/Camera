@@ -282,6 +282,13 @@ public extension MCamera {
     func setVideoStabilizationMode(_ mode: AVCaptureVideoStabilizationMode) -> Self { manager.attributes.videoStabilizationMode = mode; return self }
 
     /**
+     Defines whether the user can long-press the preview to lock focus and exposure (AE/AF Lock), and drag the sun next to the focus square to change the exposure.
+
+     Enabled by default. Tap to focus is not affected.
+     */
+    func setFocusExposureControlsEnabled(_ isEnabled: Bool) -> Self { manager.attributes.isFocusExposureControlsEnabled = isEnabled; return self }
+
+    /**
      Changes the shape of the focus indicator visible when touching anywhere on the camera screen.
      */
     func setFocusImage(_ image: UIImage) -> Self { manager.cameraMetalView.focusIndicator.image = image; return self }
