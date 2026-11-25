@@ -313,13 +313,13 @@ private extension CameraMetalView {
         }
     }
     /// The lock taking hold, as in the Camera app: the square, already at its
-    /// size, pulses up, down, up, down and settles. Every pulse has the same
-    /// size and evenly timed linear moves, so it reads as precise rather than
-    /// springy. A light tap marks the moment the lock takes.
+    /// size, pulses up once and settles over 0.18 s. The moves are evenly
+    /// timed and linear, so it reads as precise rather than springy. A light
+    /// tap marks the moment the lock takes.
     func animateFocusLockEntrance(_ indicator: CameraFocusIndicatorContainer) {
         let pulse = CGAffineTransform(scaleX: 1.12, y: 1.12)
-        let steps: [CGAffineTransform] = [pulse, .identity, pulse, .identity]
-        let stepDuration = 0.045
+        let steps: [CGAffineTransform] = [pulse, .identity]
+        let stepDuration = 0.09
         indicator.transform = .identity
         UIImpactFeedbackGenerator(style: .light, view: indicator).impactOccurred()
 
