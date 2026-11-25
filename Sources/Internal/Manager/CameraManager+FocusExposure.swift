@@ -25,17 +25,20 @@ extension CameraManager {
         device.unlockForConfiguration()
 
         if attributes.isFocusExposureLocked { attributes.isFocusExposureLocked = false }
-        cameraMetalView.showFocusIndicator(at: touchPoint, isLocked: false, showsExposureControl: attributes.isFocusExposureControlsEnabled)
+        isFocusExposureLockPending = false
+        cameraMetalView.showFocusIndicator(at: touchPoint, state: .focused, showsExposureControl: attributes.isFocusExposureControlsEnabled)
     }
 }
 
 // MARK: Focus & Exposure Lock
 extension CameraManager {
-    /// AE/AF Lock, as a long press in the Camera app. `.autoFocus` and
-    /// `.autoExpose` adjust once at the point and then hold, and with
-    /// subject-area monitoring off nothing hands control back to continuous
-    /// autofocus until the next tap.
-    func lockFocusAndExposure(at touchPoint: CGPoint) throws {
+    /// AE/AF Lock, as a long press in the Camera app, in two parts. Holding
+    /// the preview first focuses and exposes at the point while the square
+    /// throbs; holding on commits the lock, and letting go earlier leaves an
+    /// ordinary tap to focus. `.autoFocus` and `.autoExpose` adjust once and
+    /// then hold, and with subject-area monitoring off nothing hands control
+    /// back to continuous autofocus until the next tap.
+    func beginFocusExposureLock(at touchPoint: CGPoint) throws {
         guard attributes.isFocusExposureControlsEnabled, let device = getCameraInput()?.device, !isChanging else { return }
 
         let focusPoint = convertTouchPointToFocusPoint(touchPoint)
@@ -43,12 +46,37 @@ extension CameraManager {
         try device.lockForConfiguration()
         device.setFocusPointOfInterest(focusPoint)
         device.setExposurePointOfInterest(focusPoint)
+        // Off already while held, so a change of scene can't pull focus away.
         device.isSubjectAreaChangeMonitoringEnabled = false
         applyExposureTargetBias(to: device)
         device.unlockForConfiguration()
 
+        // A new hold replaces an earlier lock.
+        if attributes.isFocusExposureLocked { attributes.isFocusExposureLocked = false }
+        isFocusExposureLockPending = true
+        cameraMetalView.showFocusIndicator(at: touchPoint, state: .pendingLock, showsExposureControl: true)
+    }
+    func commitFocusExposureLock() {
+        guard isFocusExposureLockPending else { return }
+
+        isFocusExposureLockPending = false
         attributes.isFocusExposureLocked = true
-        cameraMetalView.showFocusIndicator(at: touchPoint, isLocked: true, showsExposureControl: true)
+        cameraMetalView.commitFocusLock()
+    }
+    /// Let go before the lock took: what is left is a tap to focus.
+    func cancelPendingFocusExposureLock() {
+        guard isFocusExposureLockPending else { return }
+
+        isFocusExposureLockPending = false
+        if let device = getCameraInput()?.device, (try? device.lockForConfiguration()) != nil {
+            device.isSubjectAreaChangeMonitoringEnabled = true
+            device.unlockForConfiguration()
+        }
+        cameraMetalView.cancelPendingFocusLock()
+    }
+    func lockFocusAndExposure(at touchPoint: CGPoint) throws {
+        try beginFocusExposureLock(at: touchPoint)
+        commitFocusExposureLock()
     }
     /// Ends a focus & exposure lock and returns to continuous autofocus and
     /// autoexposure, dropping any exposure change made with the sun.
@@ -67,7 +95,7 @@ extension CameraManager {
         guard isEnabled != attributes.isFocusExposureControlsEnabled else { return }
 
         attributes.isFocusExposureControlsEnabled = isEnabled
-        if !isEnabled { releaseFocusExposureLock() }
+        if !isEnabled { cancelPendingFocusExposureLock(); releaseFocusExposureLock() }
     }
 }
 

@@ -68,6 +68,8 @@ import AVKit
     /// `attributes` so a drag does not re-render the host at frame rate.
     var exposureBiasOffset: Float = 0
     var exposureBiasOffsetAtDragStart: Float = 0
+    /// True while the preview is held but the focus & exposure lock has not taken yet.
+    var isFocusExposureLockPending: Bool = false
     
 //    //MARK: Macro
 //    private var zoomFactorObserver: NSKeyValueObservation?
@@ -1385,6 +1387,7 @@ extension CameraManager {
         newAttributes.hdrMode = device.hdrMode
         // Focus and exposure belong to the device that was replaced.
         newAttributes.isFocusExposureLocked = false
+        isFocusExposureLockPending = false
         exposureBiasOffset = 0
 
         attributes = newAttributes

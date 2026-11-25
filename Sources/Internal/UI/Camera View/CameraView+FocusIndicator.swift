@@ -19,9 +19,9 @@ import SwiftUI
 
 // MARK: Create
 extension CameraFocusIndicatorView {
-    func create(at touchPoint: CGPoint, in bounds: CGRect, isLocked: Bool, showsExposureControl: Bool) -> CameraFocusIndicatorContainer {
+    func create(at touchPoint: CGPoint, in bounds: CGRect, state: CameraFocusIndicatorContainer.State, showsExposureControl: Bool) -> CameraFocusIndicatorContainer {
         let indicator = CameraFocusIndicatorContainer(image: image, tintColor: tintColor, size: size, showsExposureControl: showsExposureControl)
-        indicator.isLocked = isLocked
+        indicator.state = state
         indicator.frame = .init(x: touchPoint.x - size / 2, y: touchPoint.y - size / 2, width: size, height: size)
         // The sun goes on the side with room for it, as in the Camera app.
         indicator.sunSide = touchPoint.x + size / 2 + CameraFocusIndicatorContainer.sunReach > bounds.maxX ? .leading : .trailing
@@ -40,12 +40,15 @@ extension CameraFocusIndicatorView {
 /// down a line while the exposure is dragged; the line shows only then.
 @MainActor final class CameraFocusIndicatorContainer: UIView {
     enum SunSide { case leading, trailing }
+    /// `pendingLock`: the preview is held and the lock has not taken yet.
+    enum State { case focused, pendingLock, locked }
 
     static let sunSize: CGFloat = 22
     static let sunGap: CGFloat = 12
     static var sunReach: CGFloat { sunGap + sunSize }
 
-    var isLocked: Bool = false
+    var state: State = .focused
+    var isLocked: Bool { state == .locked }
     var sunSide: SunSide = .trailing { didSet { setNeedsLayout() } }
     /// Position of the sun along its line, from -1 (bottom) to 1 (top).
     var exposureFraction: CGFloat = 0 { didSet { setNeedsLayout() } }
@@ -100,6 +103,24 @@ extension CameraFocusIndicatorView {
         upperLine.frame = .init(x: centerX - 0.5, y: lineTop, width: 1, height: max(0, upperBottom - lineTop))
         lowerLine.frame = .init(x: centerX - 0.5, y: lowerTop, width: 1, height: max(0, lineBottom - lowerTop))
     }
+    /// The square's opacity rises and falls three times a second while the
+    /// lock is pending, as in the Camera app. Ease-in-out half cycles that
+    /// reverse give a close match to a sine wave.
+    func startThrob() {
+        let throb = CABasicAnimation(keyPath: "opacity")
+        throb.fromValue = 1
+        throb.toValue = 0.35
+        throb.duration = 1 / 6
+        throb.autoreverses = true
+        throb.repeatCount = .infinity
+        throb.timingFunction = .init(name: .easeInEaseOut)
+        squareView.layer.add(throb, forKey: Self.throbKey)
+    }
+    func stopThrob() {
+        squareView.layer.removeAnimation(forKey: Self.throbKey)
+    }
+    private static let throbKey = "throb"
+
     func setExposureLineVisible(_ isVisible: Bool) {
         UIView.animate(withDuration: 0.2) { [self] in
             upperLine.alpha = isVisible ? 1 : 0

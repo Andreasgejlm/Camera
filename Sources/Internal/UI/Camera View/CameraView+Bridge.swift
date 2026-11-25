@@ -19,7 +19,7 @@ extension CameraBridgeView {
     func makeUIView(context: Context) -> some UIView {
         cameraManager.initialize(in: inputView)
         setupTapGesture(context)
-        setupLongPressGesture(context)
+        setupLongPressGestures(context)
         setupPanGesture(context)
         setupPinchGesture(context)
         return inputView
@@ -38,12 +38,20 @@ private extension CameraBridgeView {
         let tapRecognizer = UITapGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.onTapGesture))
         inputView.addGestureRecognizer(tapRecognizer)
     }
-    func setupLongPressGesture(_ context: Context) {
-        // A long press that is recognised makes the tap fail, so the two
-        // never both fire for one touch.
-        let longPressRecognizer = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.onLongPressGesture))
-        longPressRecognizer.minimumPressDuration = 0.5
-        inputView.addGestureRecognizer(longPressRecognizer)
+    /// Two long presses on the same touch: the first starts the pending
+    /// lock (the throbbing square), the second commits it. Lifting or moving
+    /// the finger before the second fires leaves a tap to focus. A long press
+    /// that is recognised makes the tap fail, so both never fire for one touch.
+    func setupLongPressGestures(_ context: Context) {
+        let holdRecognizer = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.onHoldGesture))
+        holdRecognizer.minimumPressDuration = 0.2
+        holdRecognizer.delegate = context.coordinator
+        inputView.addGestureRecognizer(holdRecognizer)
+
+        let lockRecognizer = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.onLockGesture))
+        lockRecognizer.minimumPressDuration = 0.8
+        lockRecognizer.delegate = context.coordinator
+        inputView.addGestureRecognizer(lockRecognizer)
     }
     func setupPanGesture(_ context: Context) {
         let panRecognizer = UIPanGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.onPanGesture))
@@ -80,11 +88,16 @@ extension CameraBridgeView.Coordinator {
 
 // MARK: On Long Press
 extension CameraBridgeView.Coordinator {
-    @MainActor @objc func onLongPressGesture(_ longPress: UILongPressGestureRecognizer) {
-        guard longPress.state == .began else { return }
-
-        let touchPoint = longPress.location(in: parent.inputView)
-        try? parent.cameraManager.lockFocusAndExposure(at: touchPoint)
+    @MainActor @objc func onHoldGesture(_ hold: UILongPressGestureRecognizer) {
+        switch hold.state {
+            case .began: try? parent.cameraManager.beginFocusExposureLock(at: hold.location(in: parent.inputView))
+            case .ended, .cancelled, .failed: parent.cameraManager.cancelPendingFocusExposureLock()
+            default: break
+        }
+    }
+    @MainActor @objc func onLockGesture(_ lock: UILongPressGestureRecognizer) {
+        guard lock.state == .began else { return }
+        parent.cameraManager.commitFocusExposureLock()
     }
 }
 
@@ -103,10 +116,16 @@ extension CameraBridgeView.Coordinator: UIGestureRecognizerDelegate {
         }
     }
     @MainActor func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        // Off, the long presses stay out of the way so a slow tap still focuses.
+        if gestureRecognizer is UILongPressGestureRecognizer { return parent.cameraManager.attributes.isFocusExposureControlsEnabled }
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
 
         let velocity = pan.velocity(in: parent.inputView)
         return abs(velocity.y) > abs(velocity.x) && parent.cameraManager.canAdjustExposureWithSun
+    }
+    /// The hold and lock presses track the same touch.
+    @MainActor func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        gestureRecognizer is UILongPressGestureRecognizer && otherGestureRecognizer is UILongPressGestureRecognizer
     }
 }
 

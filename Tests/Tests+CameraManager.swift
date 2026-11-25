@@ -293,6 +293,25 @@ extension CameraManagerTests {
         #expect(currentDevice.focusMode == .autoFocus)
         #expect(cameraManager.attributes.isFocusExposureLocked == true)
     }
+    @Test("Letting Go Before The Lock Takes Leaves A Tap To Focus") func holdReleasedEarly() async throws {
+        try await setupCamera()
+
+        try cameraManager.beginFocusExposureLock(at: .init(x: 400, y: 300))
+        #expect(cameraManager.isFocusExposureLockPending == true)
+        #expect(cameraManager.attributes.isFocusExposureLocked == false)
+        #expect(currentDevice.isSubjectAreaChangeMonitoringEnabled == false)
+        #expect(cameraManager.cameraMetalView.focusIndicatorView?.state == .pendingLock)
+
+        cameraManager.cancelPendingFocusExposureLock()
+        #expect(cameraManager.isFocusExposureLockPending == false)
+        #expect(cameraManager.attributes.isFocusExposureLocked == false)
+        #expect(currentDevice.isSubjectAreaChangeMonitoringEnabled == true)
+        #expect(cameraManager.cameraMetalView.focusIndicatorView?.state == .focused)
+
+        // A commit after letting go does nothing.
+        cameraManager.commitFocusExposureLock()
+        #expect(cameraManager.attributes.isFocusExposureLocked == false)
+    }
     @Test("Tap Ends Focus And Exposure Lock") func tapEndsLock() async throws {
         try await setupCamera()
 
