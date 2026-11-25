@@ -208,10 +208,12 @@ extension CaptureDevice {
 
 // MARK: Set Exposure Target Bias
 extension CaptureDevice {
+    /// Out-of-range values raise an exception on a real device, so every bias
+    /// is clamped to the device's range first.
     func setExposureTargetBias(_ bias: Float) {
-//        guard isExposureModeSupported(.custom) else { return }
-
-        let bias = max(min(bias, maxExposureTargetBias), minExposureTargetBias)
-        setExposureTargetBias(bias, completionHandler: nil)
+        setExposureTargetBias(clampedExposureTargetBias(bias), completionHandler: nil)
+    }
+    func clampedExposureTargetBias(_ bias: Float) -> Float {
+        max(min(bias, maxExposureTargetBias), minExposureTargetBias)
     }
 }

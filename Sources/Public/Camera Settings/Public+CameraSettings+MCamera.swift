@@ -156,6 +156,13 @@ public extension MCamera {
     func setPhotoCaptureMode(_ mode: PhotoCaptureMode) -> Self { manager.attributes.photoCaptureMode = mode; return self }
 
     /**
+     Sets the shape photos are cropped to: 4:3, 16:9 or 1:1, as the Format option in the Camera app.
+
+     Defaults to `nil`, which keeps the sensor's own shape. Photos are cropped from the centre; videos are never cropped.
+     */
+    func setPhotoAspectRatio(_ aspectRatio: CameraAspectRatio?) -> Self { manager.attributes.photoAspectRatio = aspectRatio; return self }
+
+    /**
      Changes the initial camera position.
 
      For available options, please refer to the ``CameraPosition`` documentation.
@@ -280,6 +287,18 @@ public extension MCamera {
      Defaults to `.off`. The active format must support the requested mode; unsupported modes are ignored.
      */
     func setVideoStabilizationMode(_ mode: AVCaptureVideoStabilizationMode) -> Self { manager.attributes.videoStabilizationMode = mode; return self }
+
+    /**
+     Defines whether the user can long-press the preview to lock focus and exposure (AE/AF Lock), and drag the sun next to the focus square to change the exposure.
+
+     Enabled by default. Tap to focus is not affected.
+     */
+    func setFocusExposureControlsEnabled(_ isEnabled: Bool) -> Self { manager.attributes.isFocusExposureControlsEnabled = isEnabled; return self }
+
+    /**
+     Sets the initial self-timer. Defaults to `.off`. See ``MCameraScreen/setCaptureTimer(_:)``.
+     */
+    func setCaptureTimer(_ timer: CameraTimer) -> Self { manager.attributes.captureTimer = timer; return self }
 
     /**
      Changes the shape of the focus indicator visible when touching anywhere on the camera screen.

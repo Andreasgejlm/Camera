@@ -122,6 +122,15 @@ public extension MCameraScreen {
     func setPhotoCaptureMode(_ mode: PhotoCaptureMode) { cameraManager.setPhotoCaptureMode(mode) }
 
     /**
+     Set the shape photos are cropped to: 4:3, 16:9 or 1:1, as the Format option in the Camera app. Pass `nil` to keep the sensor's own shape.
+
+     Photos are cropped from the centre right after capture, and the pixel sizes in their metadata are updated to match. Videos are never cropped.
+
+     - tip: Size the view from ``createCameraOutputView()`` to the same ratio (for example 3:4 in portrait for `.fourByThree`). The preview fills its frame from the centre, so it then shows exactly what the photo keeps.
+     */
+    func setPhotoAspectRatio(_ aspectRatio: CameraAspectRatio?) { cameraManager.setPhotoAspectRatio(aspectRatio) }
+
+    /**
      Set the camera position.
 
      For available options, please refer to the ``CameraPosition`` documentation.
@@ -242,12 +251,37 @@ public extension MCameraScreen {
      - note: The active format must support stabilization; unsupported modes are ignored. Use `.off` to disable.
      */
     func setVideoStabilizationMode(_ mode: AVCaptureVideoStabilizationMode) { cameraManager.setVideoStabilizationMode(mode) }
+
+    /**
+     Ends a focus & exposure lock (AE/AF Lock) and returns to continuous autofocus and autoexposure.
+
+     A lock starts when the user long-presses the camera preview, and also ends on the next tap or a camera flip. Does nothing when nothing is locked.
+     */
+    func releaseFocusExposureLock() { cameraManager.releaseFocusExposureLock() }
+
+    /**
+     Set whether the user can long-press the preview to lock focus and exposure, and drag the sun next to the focus square to change the exposure.
+
+     Enabled by default. Turning it off also ends a lock that is in place. Tap to focus is not affected.
+     */
+    func setFocusExposureControlsEnabled(_ isEnabled: Bool) { cameraManager.setFocusExposureControlsEnabled(isEnabled) }
+
+    /**
+     Set the self-timer: ``captureOutput()`` then counts down before it takes the photo, or before it starts a recording in video mode.
+
+     While it counts, ``captureCountdown`` holds the seconds left. Calling ``captureOutput()`` again, ``cancelCaptureCountdown()``, changing the output type or pausing the camera stops the countdown without capturing. ``startRecording()`` is not delayed, so a long-press video starts at once.
+     */
+    func setCaptureTimer(_ timer: CameraTimer) { cameraManager.setCaptureTimer(timer) }
+
+    /// Stops a running self-timer countdown without capturing.
+    func cancelCaptureCountdown() { cameraManager.cancelCaptureCountdown() }
 }
 
 // MARK: Attributes
 public extension MCameraScreen {
     var cameraOutputType: CameraOutputType { cameraManager.attributes.outputType }
     var photoCaptureMode: PhotoCaptureMode { cameraManager.attributes.photoCaptureMode }
+    var photoAspectRatio: CameraAspectRatio? { cameraManager.attributes.photoAspectRatio }
     var isLivePhotoCaptureSupported: Bool { cameraManager.attributes.isLivePhotoCaptureSupported }
     var cameraPosition: CameraPosition { cameraManager.attributes.cameraPosition }
     var zoomFactor: CGFloat { cameraManager.attributes.zoomFactor }
@@ -273,6 +307,12 @@ public extension MCameraScreen {
     }
     var isMacroMode: Bool { cameraManager.attributes.isMacroMode }
     var isAutoMacroModeEnabled: Bool { cameraManager.attributes.isAutoMacroModeEnabled }
+    /// True while focus and exposure are locked after a long press on the preview (AE/AF Lock), for showing a lock label.
+    var isFocusExposureLocked: Bool { cameraManager.attributes.isFocusExposureLocked }
+    var isFocusExposureControlsEnabled: Bool { cameraManager.attributes.isFocusExposureControlsEnabled }
+    var captureTimer: CameraTimer { cameraManager.attributes.captureTimer }
+    /// Seconds left before the shutter fires while the self-timer counts down, from the timer's length down to 1; nil otherwise.
+    var captureCountdown: Int? { cameraManager.attributes.captureCountdown }
 
 }
 public extension MCameraScreen {

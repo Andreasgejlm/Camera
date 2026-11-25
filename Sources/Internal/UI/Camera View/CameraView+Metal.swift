@@ -28,6 +28,10 @@ import AVKit
     private(set) var presentedFrameCount: Int = 0
     /// True while the pause cover is the opaque one (see `showPauseCover`).
     private(set) var pauseCoverConcealsLastFrame: Bool = false
+    /// The focus square on screen, if any. Weak: it removes itself once faded.
+    private(set) weak var focusIndicatorView: CameraFocusIndicatorContainer?
+    /// True while the exposure sun is being dragged.
+    private(set) var isAdjustingExposure: Bool = false
 }
 
 // MARK: Setup
@@ -239,26 +243,109 @@ private extension CameraMetalView {
 
 // MARK: Camera Focus
 extension CameraMetalView {
-    func performCameraFocusAnimation(touchPoint: CGPoint) {
-        guard let cameraView = parent.cameraView else { return }
-        removeExistingFocusIndicatorAnimations()
+    var isFocusIndicatorVisible: Bool { focusIndicatorView?.superview != nil }
 
-        let focusIndicator = focusIndicator.create(at: touchPoint)
-        cameraView.addSubview(focusIndicator)
-        animateFocusIndicator(focusIndicator)
+    func showFocusIndicator(at touchPoint: CGPoint, state: CameraFocusIndicatorContainer.State, showsExposureControl: Bool) {
+        guard let cameraView = parent?.cameraView else { return }
+        hideFocusIndicator()
+
+        let indicator = focusIndicator.create(at: touchPoint, in: cameraView.bounds, state: state, showsExposureControl: showsExposureControl)
+        cameraView.addSubview(indicator)
+        focusIndicatorView = indicator
+        animateFocusIndicatorEntrance(indicator)
+    }
+    func hideFocusIndicator() {
+        focusIndicatorView?.removeFromSuperview()
+        focusIndicatorView = nil
+        isAdjustingExposure = false
+    }
+    /// The held lock takes: the throb stops and the square pulses.
+    func commitFocusLock() {
+        guard let indicator = focusIndicatorView else { return }
+
+        indicator.stopThrob()
+        indicator.state = .locked
+        indicator.layer.removeAllAnimations()
+        indicator.alpha = 1
+        animateFocusLockEntrance(indicator)
+    }
+    /// Let go before the lock took: the square fades as after a tap.
+    func cancelPendingFocusLock() {
+        guard let indicator = focusIndicatorView, indicator.state == .pendingLock else { return }
+
+        indicator.stopThrob()
+        indicator.state = .focused
+        scheduleFocusIndicatorFade(indicator)
+    }
+}
+
+// MARK: Exposure Sun
+extension CameraMetalView {
+    /// Holds the square fully visible, with the sun's line showing, until the drag ends.
+    func beginExposureAdjustment() {
+        guard let indicator = focusIndicatorView else { return }
+
+        isAdjustingExposure = true
+        indicator.layer.removeAllAnimations()
+        indicator.transform = .identity
+        indicator.alpha = 1
+        indicator.setExposureLineVisible(true)
+    }
+    func setExposureIndicatorFraction(_ fraction: CGFloat) {
+        focusIndicatorView?.exposureFraction = fraction
+    }
+    func endExposureAdjustment() {
+        isAdjustingExposure = false
+        guard let indicator = focusIndicatorView else { return }
+
+        indicator.setExposureLineVisible(false)
+        scheduleFocusIndicatorFade(indicator)
     }
 }
 private extension CameraMetalView {
-    func removeExistingFocusIndicatorAnimations() {
-        guard let cameraView = parent.cameraView else { return }
-        if let view = cameraView.viewWithTag(.focusIndicatorTag) {
-            view.removeFromSuperview()
+    func animateFocusIndicatorEntrance(_ indicator: CameraFocusIndicatorContainer) {
+        if indicator.state == .pendingLock { indicator.startThrob() }
+
+        UIView.animate(withDuration: 0.44, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0, animations: { indicator.transform = .identity }) { [weak self, weak indicator] finished in
+            // A pending lock holds the square until it is committed or let go.
+            guard finished, let self, let indicator, indicator.state == .focused else { return }
+            self.scheduleFocusIndicatorFade(indicator)
         }
     }
-    func animateFocusIndicator(_ focusIndicator: UIImageView) {
-        UIView.animate(withDuration: 0.44, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0, animations: { focusIndicator.transform = .init(scaleX: 1, y: 1) }) { _ in
-            UIView.animate(withDuration: 0.44, delay: 1.44, animations: { focusIndicator.alpha = 0.2 }) { _ in
-                UIView.animate(withDuration: 0.44, delay: 1.44, animations: { focusIndicator.alpha = 0 })
+    /// The lock taking hold, as in the Camera app: the square, already at its
+    /// size, pulses up, down, up, down and settles. Every pulse has the same
+    /// size and evenly timed linear moves, so it reads as precise rather than
+    /// springy. A light tap marks the moment the lock takes.
+    func animateFocusLockEntrance(_ indicator: CameraFocusIndicatorContainer) {
+        let pulse = CGAffineTransform(scaleX: 1.12, y: 1.12)
+        let steps: [CGAffineTransform] = [pulse, .identity, pulse, .identity]
+        let stepDuration = 0.045
+        indicator.transform = .identity
+        UIImpactFeedbackGenerator(style: .light, view: indicator).impactOccurred()
+
+        UIView.animateKeyframes(withDuration: stepDuration * Double(steps.count), delay: 0, options: [.calculationModeLinear], animations: {
+            for (index, transform) in steps.enumerated() {
+                UIView.addKeyframe(withRelativeStartTime: Double(index) / Double(steps.count), relativeDuration: 1 / Double(steps.count)) {
+                    indicator.transform = transform
+                }
+            }
+        }) { [weak self, weak indicator] finished in
+            // UIKit runs animation completions on the main thread.
+            MainActor.assumeIsolated {
+                guard finished, let self, let indicator else { return }
+                self.scheduleFocusIndicatorFade(indicator)
+            }
+        }
+    }
+    /// Dims the square, then removes it. A locked square dims less and stays,
+    /// so the lock stays visible until it ends.
+    func scheduleFocusIndicatorFade(_ indicator: CameraFocusIndicatorContainer) {
+        UIView.animate(withDuration: 0.44, delay: 1.44, options: [], animations: { indicator.alpha = indicator.isLocked ? 0.5 : 0.2 }) { [weak indicator] finished in
+            guard finished, let indicator, !indicator.isLocked else { return }
+
+            UIView.animate(withDuration: 0.44, delay: 1.44, options: [], animations: { indicator.alpha = 0 }) { [weak indicator] finished in
+                guard finished else { return }
+                indicator?.removeFromSuperview()
             }
         }
     }

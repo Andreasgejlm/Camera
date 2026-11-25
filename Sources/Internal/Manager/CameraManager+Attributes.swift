@@ -17,6 +17,8 @@ struct CameraManagerAttributes {
 
     var outputType: CameraOutputType = .photo
     var photoCaptureMode: PhotoCaptureMode = .still
+    /// Shape photos are cropped to. Nil keeps the sensor's own shape. Videos are never cropped.
+    var photoAspectRatio: CameraAspectRatio? = nil
     var isLivePhotoCaptureSupported: Bool = false
     var cameraPosition: CameraPosition = .back
     var isAudioSourceAvailable: Bool = true
@@ -41,4 +43,13 @@ struct CameraManagerAttributes {
     var userBlockedScreenRotation: Bool = false
     var isMacroMode: Bool = false
     var isAutoMacroModeEnabled: Bool = true
+    /// True while focus and exposure are held at a point the user long-pressed
+    /// (AE/AF Lock). A tap, a camera flip or `releaseFocusExposureLock()` ends it.
+    var isFocusExposureLocked: Bool = false
+    /// Whether long-press to lock focus and exposure, and dragging the exposure
+    /// sun next to the focus square, are available.
+    var isFocusExposureControlsEnabled: Bool = true
+    var captureTimer: CameraTimer = .off
+    /// Seconds left before the shutter fires, while a self-timer counts down.
+    var captureCountdown: Int? = nil
 }

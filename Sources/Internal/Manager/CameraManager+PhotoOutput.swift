@@ -127,7 +127,8 @@ extension CameraManagerPhotoOutput {
         guard let image = UIGraphicsGetImageFromCurrentImageContext() else { return }
         
         // Create MCameraMedia with the mock image
-        let capturedMedia = MCameraMedia(image: image, metadata: nil as [String: Any]?)
+        let croppedImage = PhotoAspectRatioCrop.apply(parent.attributes.photoAspectRatio, to: image, metadata: nil).image
+        let capturedMedia = MCameraMedia(image: croppedImage, metadata: nil as [String: Any]?)
         parent.setCapturedMedia(capturedMedia)
     }
     #endif
@@ -182,8 +183,11 @@ private extension CameraManagerPhotoOutput {
 extension CameraManagerPhotoOutput: @preconcurrency AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: (any Error)?) {
         let uniqueID = photo.resolvedSettings.uniqueID
-        let capturedUIImage: UIImage? = photo.fileDataRepresentation().flatMap(UIImage.init(data:))
-        let metadata = photo.metadata as? [String: Any]
+        let (capturedUIImage, metadata) = PhotoAspectRatioCrop.apply(
+            parent.attributes.photoAspectRatio,
+            to: photo.fileDataRepresentation().flatMap(UIImage.init(data:)),
+            metadata: photo.metadata as [String: Any]
+        )
 
         if var pendingCapture = pendingPhotoCaptures[uniqueID] {
             pendingCapture.image = capturedUIImage
