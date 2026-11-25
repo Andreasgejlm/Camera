@@ -110,6 +110,42 @@ extension CameraManager {
     }
 }
 
+// MARK: Exposure Sun
+extension CameraManager {
+    /// How far the sun can move the exposure either way, in EV.
+    static let maxExposureBiasOffset: Float = 2
+    /// Vertical drag distance that changes the exposure by one EV.
+    static let exposureDragPointsPerEV: CGFloat = 120
+
+    /// The sun can be dragged while the focus square is on screen.
+    var canAdjustExposureWithSun: Bool {
+        attributes.isFocusExposureControlsEnabled && cameraMetalView.isFocusIndicatorVisible && !isChanging
+    }
+    func beginExposureAdjustment() {
+        exposureBiasOffsetAtDragStart = exposureBiasOffset
+        cameraMetalView.beginExposureAdjustment()
+    }
+    /// - Parameter translation: Vertical drag distance since the drag began, in points; upwards is negative and brightens.
+    func updateExposureAdjustment(translation: CGFloat) {
+        let change = Float(-translation / Self.exposureDragPointsPerEV)
+        let offset = max(-Self.maxExposureBiasOffset, min(Self.maxExposureBiasOffset, exposureBiasOffsetAtDragStart + change))
+        setExposureBiasOffset(offset)
+    }
+    func endExposureAdjustment() {
+        cameraMetalView.endExposureAdjustment()
+    }
+}
+private extension CameraManager {
+    func setExposureBiasOffset(_ offset: Float) {
+        guard offset != exposureBiasOffset, let device = getCameraInput()?.device, (try? device.lockForConfiguration()) != nil else { return }
+
+        exposureBiasOffset = offset
+        applyExposureTargetBias(to: device)
+        device.unlockForConfiguration()
+        cameraMetalView.setExposureIndicatorFraction(CGFloat(offset / Self.maxExposureBiasOffset))
+    }
+}
+
 // MARK: Touch Point Conversion
 extension CameraManager {
     func convertTouchPointToFocusPoint(_ touchPoint: CGPoint) -> CGPoint { .init(

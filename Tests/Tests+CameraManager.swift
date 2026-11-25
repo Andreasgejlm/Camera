@@ -333,6 +333,49 @@ extension CameraManagerTests {
     }
 }
 
+// MARK: Exposure Sun
+extension CameraManagerTests {
+    @Test("Exposure Sun Adds To The Exposure Bias") func exposureSunAddsToBias() async throws {
+        try await setupCamera()
+        try cameraManager.setExposureTargetBias(0.5)
+
+        #expect(cameraManager.canAdjustExposureWithSun == false)
+        try cameraManager.setCameraFocus(at: .init(x: 400, y: 300))
+        #expect(cameraManager.canAdjustExposureWithSun == true)
+
+        // Dragging up brightens; the host's own bias is left as it was.
+        cameraManager.beginExposureAdjustment()
+        #expect(cameraManager.cameraMetalView.isAdjustingExposure == true)
+        cameraManager.updateExposureAdjustment(translation: -CameraManager.exposureDragPointsPerEV)
+        #expect(currentDevice.exposureTargetBias == 1.5)
+        #expect(cameraManager.attributes.cameraExposure.targetBias == 0.5)
+        cameraManager.endExposureAdjustment()
+        #expect(cameraManager.cameraMetalView.isAdjustingExposure == false)
+
+        // The change is capped, and a second drag continues from the first.
+        cameraManager.beginExposureAdjustment()
+        cameraManager.updateExposureAdjustment(translation: -10 * CameraManager.exposureDragPointsPerEV)
+        cameraManager.endExposureAdjustment()
+        #expect(currentDevice.exposureTargetBias == 0.5 + CameraManager.maxExposureBiasOffset)
+        #expect(cameraManager.cameraMetalView.focusIndicatorView?.exposureFraction == 1)
+
+        // Changing the host's bias keeps the sun's change on top.
+        try cameraManager.setExposureTargetBias(1)
+        #expect(currentDevice.exposureTargetBias == 1 + CameraManager.maxExposureBiasOffset)
+
+        // A new tap starts over from the host's bias.
+        try cameraManager.setCameraFocus(at: .init(x: 100, y: 100))
+        #expect(currentDevice.exposureTargetBias == 1)
+    }
+    @Test("Exposure Sun Unavailable When Controls Disabled") func exposureSunDisabled() async throws {
+        try await setupCamera()
+        cameraManager.setFocusExposureControlsEnabled(false)
+
+        try cameraManager.setCameraFocus(at: .init(x: 400, y: 300))
+        #expect(cameraManager.canAdjustExposureWithSun == false)
+    }
+}
+
 // MARK: Set Flash Mode
 extension CameraManagerTests {
     @Test("Set Flash Mode") func setFlashMode() async throws {

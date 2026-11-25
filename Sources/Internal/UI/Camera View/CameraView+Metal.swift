@@ -260,6 +260,30 @@ extension CameraMetalView {
         isAdjustingExposure = false
     }
 }
+
+// MARK: Exposure Sun
+extension CameraMetalView {
+    /// Holds the square fully visible, with the sun's line showing, until the drag ends.
+    func beginExposureAdjustment() {
+        guard let indicator = focusIndicatorView else { return }
+
+        isAdjustingExposure = true
+        indicator.layer.removeAllAnimations()
+        indicator.transform = .identity
+        indicator.alpha = 1
+        indicator.setExposureLineVisible(true)
+    }
+    func setExposureIndicatorFraction(_ fraction: CGFloat) {
+        focusIndicatorView?.exposureFraction = fraction
+    }
+    func endExposureAdjustment() {
+        isAdjustingExposure = false
+        guard let indicator = focusIndicatorView else { return }
+
+        indicator.setExposureLineVisible(false)
+        scheduleFocusIndicatorFade(indicator)
+    }
+}
 private extension CameraMetalView {
     func animateFocusIndicatorEntrance(_ indicator: CameraFocusIndicatorContainer) {
         UIView.animate(withDuration: 0.44, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0, animations: { indicator.transform = .identity }) { [weak self, weak indicator] finished in

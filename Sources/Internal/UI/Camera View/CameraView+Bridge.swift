@@ -20,6 +20,7 @@ extension CameraBridgeView {
         cameraManager.initialize(in: inputView)
         setupTapGesture(context)
         setupLongPressGesture(context)
+        setupPanGesture(context)
         setupPinchGesture(context)
         return inputView
     }
@@ -43,6 +44,12 @@ private extension CameraBridgeView {
         let longPressRecognizer = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.onLongPressGesture))
         longPressRecognizer.minimumPressDuration = 0.5
         inputView.addGestureRecognizer(longPressRecognizer)
+    }
+    func setupPanGesture(_ context: Context) {
+        let panRecognizer = UIPanGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.onPanGesture))
+        panRecognizer.maximumNumberOfTouches = 1
+        panRecognizer.delegate = context.coordinator
+        inputView.addGestureRecognizer(panRecognizer)
     }
     func setupPinchGesture(_ context: Context) {
         let pinchRecognizer = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.onPinchGesture))
@@ -78,6 +85,28 @@ extension CameraBridgeView.Coordinator {
 
         let touchPoint = longPress.location(in: parent.inputView)
         try? parent.cameraManager.lockFocusAndExposure(at: touchPoint)
+    }
+}
+
+// MARK: On Pan
+extension CameraBridgeView.Coordinator: UIGestureRecognizerDelegate {
+    /// Drags the exposure sun. Only a vertical drag while the focus square is
+    /// on screen starts it, so sideways swipes and other drags in the host
+    /// still reach their own gestures.
+    @MainActor @objc func onPanGesture(_ pan: UIPanGestureRecognizer) {
+        let cameraManager = parent.cameraManager
+        switch pan.state {
+            case .began: cameraManager.beginExposureAdjustment()
+            case .changed: cameraManager.updateExposureAdjustment(translation: pan.translation(in: parent.inputView).y)
+            case .ended, .cancelled, .failed: cameraManager.endExposureAdjustment()
+            default: break
+        }
+    }
+    @MainActor func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+
+        let velocity = pan.velocity(in: parent.inputView)
+        return abs(velocity.y) > abs(velocity.x) && parent.cameraManager.canAdjustExposureWithSun
     }
 }
 
