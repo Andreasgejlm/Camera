@@ -330,8 +330,11 @@ private extension CameraMetalView {
                 }
             }
         }) { [weak self, weak indicator] finished in
-            guard finished, let self, let indicator else { return }
-            self.scheduleFocusIndicatorFade(indicator)
+            // UIKit runs animation completions on the main thread.
+            MainActor.assumeIsolated {
+                guard finished, let self, let indicator else { return }
+                self.scheduleFocusIndicatorFade(indicator)
+            }
         }
     }
     /// Dims the square, then removes it. A locked square dims less and stays,
