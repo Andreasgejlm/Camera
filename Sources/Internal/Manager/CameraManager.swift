@@ -691,6 +691,7 @@ extension CameraManager {
     /// instead (see `pause(_:)`). The next `setup()` rebuilds everything.
     func cancel() {
         cancelCaptureCountdown()
+        returnDeviceToContinuousFocusAndExposure()
         clearCurrentCapturedLivePhotoIfNeeded()
         removeAudioInput()
         deactivateAudioSession()
@@ -986,6 +987,9 @@ extension CameraManager {
         startCaptureCountdown { [weak self] in self?.performCaptureOutput() }
     }
     private func performCaptureOutput() {
+        // A countdown can end during a camera flip.
+        guard !isChanging else { return }
+
         switch attributes.outputType {
             case .photo: photoOutput.capture()
             case .video: videoOutput.toggleRecording()
@@ -993,10 +997,13 @@ extension CameraManager {
     }
     
     func startRecording() {
+        // A countdown that ended now would toggle this recording off again.
+        cancelCaptureCountdown()
         videoOutput.startRecording()
     }
     
     func stopRecording() {
+        cancelCaptureCountdown()
         videoOutput.stopRecording()
     }
 }
@@ -1039,8 +1046,8 @@ extension CameraManager {
         attributes.photoAspectRatio = aspectRatio
     }
     func setOutputType(_ outputType: CameraOutputType) {
-        cancelCaptureCountdown()
         guard outputType != attributes.outputType, !isChanging else { return }
+        cancelCaptureCountdown()
         attributes.outputType = outputType
     }
 }
@@ -1051,6 +1058,8 @@ extension CameraManager {
         guard position != attributes.cameraPosition, !isChanging else { return }
 
         await cameraMetalView.beginCameraFlipAnimation()
+        // The outgoing camera keeps its settings for when it comes back.
+        returnDeviceToContinuousFocusAndExposure()
         try changeCameraInput(position)
         attributes.cameraPosition = position
 

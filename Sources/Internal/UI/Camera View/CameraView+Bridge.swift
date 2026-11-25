@@ -109,7 +109,11 @@ extension CameraBridgeView.Coordinator: UIGestureRecognizerDelegate {
     @MainActor @objc func onPanGesture(_ pan: UIPanGestureRecognizer) {
         let cameraManager = parent.cameraManager
         switch pan.state {
-            case .began: cameraManager.beginExposureAdjustment()
+            case .began:
+                // A finger that rested before dragging started a pending lock;
+                // the drag wins, and the square stays where the finger rested.
+                cameraManager.cancelPendingFocusExposureLock()
+                cameraManager.beginExposureAdjustment()
             case .changed: cameraManager.updateExposureAdjustment(translation: pan.translation(in: parent.inputView).y)
             case .ended, .cancelled, .failed: cameraManager.endExposureAdjustment()
             default: break
@@ -123,9 +127,16 @@ extension CameraBridgeView.Coordinator: UIGestureRecognizerDelegate {
         let velocity = pan.velocity(in: parent.inputView)
         return abs(velocity.y) > abs(velocity.x) && parent.cameraManager.canAdjustExposureWithSun
     }
-    /// The hold and lock presses track the same touch.
+    /// The hold and lock presses track the same touch, and the exposure drag
+    /// may start after a finger rested long enough to begin a hold. Only this
+    /// view's own recognisers are paired; the host's are left alone.
     @MainActor func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        gestureRecognizer is UILongPressGestureRecognizer && otherGestureRecognizer is UILongPressGestureRecognizer
+        guard gestureRecognizer.view === parent.inputView, otherGestureRecognizer.view === parent.inputView else { return false }
+
+        let isHoldOrDrag = { (recognizer: UIGestureRecognizer) in recognizer is UILongPressGestureRecognizer || recognizer is UIPanGestureRecognizer }
+        guard isHoldOrDrag(gestureRecognizer), isHoldOrDrag(otherGestureRecognizer) else { return false }
+        // Two drags never pair; the pinch is neither.
+        return gestureRecognizer is UILongPressGestureRecognizer || otherGestureRecognizer is UILongPressGestureRecognizer
     }
 }
 

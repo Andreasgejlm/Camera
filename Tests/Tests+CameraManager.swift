@@ -345,10 +345,26 @@ extension CameraManagerTests {
     @Test("Camera Flip Ends Focus And Exposure Lock") func flipEndsLock() async throws {
         try await setupCamera()
 
+        try cameraManager.setExposureTargetBias(0.5)
         try cameraManager.lockFocusAndExposure(at: .init(x: 400, y: 300))
+        cameraManager.beginExposureAdjustment()
+        cameraManager.updateExposureAdjustment(translation: -CameraManager.exposureDragPointsPerEV)
+        cameraManager.endExposureAdjustment()
+        let backDevice = currentDevice
+
         try await cameraManager.setCameraPosition(.front)
         #expect(cameraManager.attributes.isFocusExposureLocked == false)
         #expect(cameraManager.cameraMetalView.isFocusIndicatorVisible == false)
+        // The back camera is left unlocked, at the host's own bias.
+        #expect(backDevice.focusMode == .continuousAutoFocus)
+        #expect(backDevice.isSubjectAreaChangeMonitoringEnabled == false)
+        #expect(backDevice.exposureTargetBias == 0.5)
+
+        // The flip animation blocks another flip until it has finished.
+        await Task.sleep(seconds: 0.6)
+        try await cameraManager.setCameraPosition(.back)
+        #expect(cameraManager.attributes.cameraPosition == .back)
+        #expect(cameraManager.attributes.cameraExposure.targetBias == 0.5)
     }
 }
 
@@ -484,6 +500,23 @@ extension CameraManagerTests {
         cameraManager.pause(.host)
         #expect(cameraManager.isCaptureCountdownRunning == false)
         #expect(cameraManager.attributes.captureCountdown == nil)
+    }
+    @Test("Capture Timer: Start Recording Cancels The Countdown") func captureTimerStartRecording() async throws {
+        try await setupCamera()
+        cameraManager.captureCountdownTickInterval = 0.2
+        cameraManager.setCaptureTimer(.threeSeconds)
+
+        cameraManager.captureOutput()
+        cameraManager.startRecording()
+        #expect(cameraManager.isCaptureCountdownRunning == false)
+        #expect(cameraManager.attributes.captureCountdown == nil)
+
+        // Setting the same output type again leaves a countdown running.
+        cameraManager.stopRecording()
+        cameraManager.captureOutput()
+        cameraManager.setOutputType(cameraManager.attributes.outputType)
+        #expect(cameraManager.isCaptureCountdownRunning == true)
+        cameraManager.cancelCaptureCountdown()
     }
     @Test("Capture Timer: Off Captures At Once") func captureTimerOff() async throws {
         try await setupCamera()

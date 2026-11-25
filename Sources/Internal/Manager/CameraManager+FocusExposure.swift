@@ -108,8 +108,25 @@ extension CameraManager {
         // The user is dragging the exposure sun; the scene change is theirs.
         guard !cameraMetalView.isAdjustingExposure else { return }
 
+        guard (try? device.lockForConfiguration()) != nil else { return }
         exposureBiasOffset = 0
-        try? device.lockForConfiguration()
+        device.resetFocusToContinuousAutoFocus()
+        applyExposureTargetBias(to: device)
+        device.unlockForConfiguration()
+        // The square may still be up; its sun goes back to the middle.
+        cameraMetalView.setExposureIndicatorFraction(0)
+    }
+    /// Before the camera is switched or released: a lock, a pending lock or
+    /// the sun's change would otherwise stay on the device, and the sun's
+    /// change would be read back as the lasting bias when it returns.
+    func returnDeviceToContinuousFocusAndExposure() {
+        let hadFocusState = attributes.isFocusExposureLocked || isFocusExposureLockPending || exposureBiasOffset != 0
+        attributes.isFocusExposureLocked = false
+        isFocusExposureLockPending = false
+        exposureBiasOffset = 0
+        cameraMetalView.hideFocusIndicator()
+
+        guard hadFocusState, let device = getCameraInput()?.device, (try? device.lockForConfiguration()) != nil else { return }
         device.resetFocusToContinuousAutoFocus()
         applyExposureTargetBias(to: device)
         device.unlockForConfiguration()
