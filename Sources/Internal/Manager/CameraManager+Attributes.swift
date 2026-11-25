@@ -17,6 +17,8 @@ struct CameraManagerAttributes {
 
     var outputType: CameraOutputType = .photo
     var photoCaptureMode: PhotoCaptureMode = .still
+    /// Shape photos are cropped to. Nil keeps the sensor's own shape. Videos are never cropped.
+    var photoAspectRatio: CameraAspectRatio? = nil
     var isLivePhotoCaptureSupported: Bool = false
     var cameraPosition: CameraPosition = .back
     var isAudioSourceAvailable: Bool = true

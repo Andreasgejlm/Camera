@@ -176,8 +176,25 @@ private extension CameraManager {
 
 // MARK: Touch Point Conversion
 extension CameraManager {
-    func convertTouchPointToFocusPoint(_ touchPoint: CGPoint) -> CGPoint { .init(
-        x: touchPoint.y / cameraView.frame.height,
-        y: 1 - touchPoint.x / cameraView.frame.width
-    )}
+    func convertTouchPointToFocusPoint(_ touchPoint: CGPoint) -> CGPoint {
+        Self.focusPoint(for: touchPoint, viewSize: cameraView.frame.size, frameSize: cameraMetalView.currentFrame?.extent.size)
+    }
+    /// The preview fills its view from the centre and cuts off what doesn't
+    /// fit, more so when the host gives it a 1:1 or 16:9 frame. The touch is
+    /// placed on the whole camera frame before it becomes a device point
+    /// (0 to 1, in the sensor's landscape orientation). Without a frame yet,
+    /// the view is taken to show all of it.
+    nonisolated static func focusPoint(for touchPoint: CGPoint, viewSize: CGSize, frameSize: CGSize?) -> CGPoint {
+        var displayedSize = viewSize
+        var origin = CGPoint.zero
+        if let frameSize, frameSize.width > 0, frameSize.height > 0 {
+            let scale = max(viewSize.width / frameSize.width, viewSize.height / frameSize.height)
+            displayedSize = .init(width: frameSize.width * scale, height: frameSize.height * scale)
+            origin = .init(x: (viewSize.width - displayedSize.width) / 2, y: (viewSize.height - displayedSize.height) / 2)
+        }
+
+        let x = (touchPoint.x - origin.x) / displayedSize.width
+        let y = (touchPoint.y - origin.y) / displayedSize.height
+        return .init(x: y, y: 1 - x)
+    }
 }

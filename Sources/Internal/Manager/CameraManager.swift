@@ -1020,6 +1020,10 @@ extension CameraManager {
         attributes.photoCaptureMode = mode
     }
 
+    func setPhotoAspectRatio(_ aspectRatio: CameraAspectRatio?) {
+        guard aspectRatio != attributes.photoAspectRatio else { return }
+        attributes.photoAspectRatio = aspectRatio
+    }
     func setOutputType(_ outputType: CameraOutputType) {
         guard outputType != attributes.outputType, !isChanging else { return }
         attributes.outputType = outputType

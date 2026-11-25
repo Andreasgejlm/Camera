@@ -395,6 +395,60 @@ extension CameraManagerTests {
     }
 }
 
+// MARK: Photo Aspect Ratio
+extension CameraManagerTests {
+    @Test("Photo Aspect Ratio: Crop Rect") func photoAspectRatioCropRect() {
+        // Portrait 3:4 stills.
+        #expect(PhotoAspectRatioCrop.cropRect(width: 3024, height: 4032, longToShortRatio: CameraAspectRatio.square.longToShortRatio) == .init(x: 0, y: 504, width: 3024, height: 3024))
+        #expect(PhotoAspectRatioCrop.cropRect(width: 3024, height: 4032, longToShortRatio: CameraAspectRatio.sixteenByNine.longToShortRatio) == .init(x: 378, y: 0, width: 2268, height: 4032))
+        #expect(PhotoAspectRatioCrop.cropRect(width: 3024, height: 4032, longToShortRatio: CameraAspectRatio.fourByThree.longToShortRatio) == nil)
+        // Landscape sensor pixels.
+        #expect(PhotoAspectRatioCrop.cropRect(width: 4032, height: 3024, longToShortRatio: CameraAspectRatio.sixteenByNine.longToShortRatio) == .init(x: 0, y: 378, width: 4032, height: 2268))
+        // A 16:9 still asked for 4:3 loses width instead.
+        #expect(PhotoAspectRatioCrop.cropRect(width: 1920, height: 1080, longToShortRatio: CameraAspectRatio.fourByThree.longToShortRatio) == .init(x: 240, y: 0, width: 1440, height: 1080))
+    }
+    @Test("Photo Aspect Ratio: Image And Metadata") func photoAspectRatioImageAndMetadata() throws {
+        let image = UIGraphicsImageRenderer(size: .init(width: 400, height: 300), format: { let f = UIGraphicsImageRendererFormat(); f.scale = 1; return f }()).image { _ in }
+        let rotated = UIImage(cgImage: try #require(image.cgImage), scale: 1, orientation: .right)
+        let metadata: [String: Any] = [
+            kCGImagePropertyPixelWidth as String: 400,
+            kCGImagePropertyPixelHeight as String: 300,
+            kCGImagePropertyExifDictionary as String: [kCGImagePropertyExifPixelXDimension as String: 400, kCGImagePropertyExifPixelYDimension as String: 300]
+        ]
+
+        let (cropped, croppedMetadata) = PhotoAspectRatioCrop.apply(.square, to: rotated, metadata: metadata)
+        #expect(cropped?.cgImage?.width == 300)
+        #expect(cropped?.cgImage?.height == 300)
+        #expect(cropped?.imageOrientation == .right)
+        #expect(croppedMetadata?[kCGImagePropertyPixelWidth as String] as? Int == 300)
+        let exif = croppedMetadata?[kCGImagePropertyExifDictionary as String] as? [String: Any]
+        #expect(exif?[kCGImagePropertyExifPixelXDimension as String] as? Int == 300)
+
+        let untouched = PhotoAspectRatioCrop.apply(nil, to: rotated, metadata: metadata)
+        #expect(untouched.image === rotated)
+    }
+    @Test("Photo Aspect Ratio: Captured Photo Is Cropped") func photoAspectRatioCapture() async throws {
+        try await setupCamera()
+
+        cameraManager.setPhotoAspectRatio(.square)
+        #expect(cameraManager.attributes.photoAspectRatio == .square)
+        cameraManager.captureOutput()
+        let image = try #require(cameraManager.attributes.capturedMedia?.image)
+        #expect(image.size.width == image.size.height)
+    }
+    @Test("Focus Point Accounts For The Cropped Preview") func focusPointInCroppedPreview() {
+        // A portrait 3:4 frame shown in a square view loses its top and bottom.
+        let viewSize = CGSize(width: 300, height: 300)
+        let frameSize = CGSize(width: 3024, height: 4032)
+        let centre = CameraManager.focusPoint(for: .init(x: 150, y: 150), viewSize: viewSize, frameSize: frameSize)
+        #expect(centre == .init(x: 0.5, y: 0.5))
+        let top = CameraManager.focusPoint(for: .init(x: 150, y: 0), viewSize: viewSize, frameSize: frameSize)
+        #expect(abs(top.x - 0.125) < 0.0001)
+        // Without a frame, the view is taken to show all of it.
+        #expect(CameraManager.focusPoint(for: .init(x: 150, y: 0), viewSize: viewSize, frameSize: nil) == .init(x: 0, y: 0.5))
+    }
+}
+
 // MARK: Set Flash Mode
 extension CameraManagerTests {
     @Test("Set Flash Mode") func setFlashMode() async throws {

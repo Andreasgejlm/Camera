@@ -156,6 +156,13 @@ public extension MCamera {
     func setPhotoCaptureMode(_ mode: PhotoCaptureMode) -> Self { manager.attributes.photoCaptureMode = mode; return self }
 
     /**
+     Sets the shape photos are cropped to: 4:3, 16:9 or 1:1, as the Format option in the Camera app.
+
+     Defaults to `nil`, which keeps the sensor's own shape. Photos are cropped from the centre; videos are never cropped.
+     */
+    func setPhotoAspectRatio(_ aspectRatio: CameraAspectRatio?) -> Self { manager.attributes.photoAspectRatio = aspectRatio; return self }
+
+    /**
      Changes the initial camera position.
 
      For available options, please refer to the ``CameraPosition`` documentation.

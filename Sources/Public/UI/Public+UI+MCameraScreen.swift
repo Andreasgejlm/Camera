@@ -122,6 +122,15 @@ public extension MCameraScreen {
     func setPhotoCaptureMode(_ mode: PhotoCaptureMode) { cameraManager.setPhotoCaptureMode(mode) }
 
     /**
+     Set the shape photos are cropped to: 4:3, 16:9 or 1:1, as the Format option in the Camera app. Pass `nil` to keep the sensor's own shape.
+
+     Photos are cropped from the centre right after capture, and the pixel sizes in their metadata are updated to match. Videos are never cropped.
+
+     - tip: Size the view from ``createCameraOutputView()`` to the same ratio (for example 3:4 in portrait for `.fourByThree`). The preview fills its frame from the centre, so it then shows exactly what the photo keeps.
+     */
+    func setPhotoAspectRatio(_ aspectRatio: CameraAspectRatio?) { cameraManager.setPhotoAspectRatio(aspectRatio) }
+
+    /**
      Set the camera position.
 
      For available options, please refer to the ``CameraPosition`` documentation.
@@ -262,6 +271,7 @@ public extension MCameraScreen {
 public extension MCameraScreen {
     var cameraOutputType: CameraOutputType { cameraManager.attributes.outputType }
     var photoCaptureMode: PhotoCaptureMode { cameraManager.attributes.photoCaptureMode }
+    var photoAspectRatio: CameraAspectRatio? { cameraManager.attributes.photoAspectRatio }
     var isLivePhotoCaptureSupported: Bool { cameraManager.attributes.isLivePhotoCaptureSupported }
     var cameraPosition: CameraPosition { cameraManager.attributes.cameraPosition }
     var zoomFactor: CGFloat { cameraManager.attributes.zoomFactor }
