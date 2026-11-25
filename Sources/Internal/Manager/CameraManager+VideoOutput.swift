@@ -49,6 +49,9 @@ extension CameraManagerVideoOutput {
 
 // MARK: Toggle
 extension CameraManagerVideoOutput {
+    /// Recording, or asked to record and opening the mic.
+    var isRecordingOrStarting: Bool { isRecordingRequested || output.isRecording || timer.timerStatus == .running }
+
     func toggleRecording() { switch isRecordingRequested || output.isRecording {
         case true: stopRecording()
         case false: startRecording()

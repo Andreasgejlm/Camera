@@ -296,6 +296,11 @@ public extension MCamera {
     func setFocusExposureControlsEnabled(_ isEnabled: Bool) -> Self { manager.attributes.isFocusExposureControlsEnabled = isEnabled; return self }
 
     /**
+     Sets the initial self-timer. Defaults to `.off`. See ``MCameraScreen/setCaptureTimer(_:)``.
+     */
+    func setCaptureTimer(_ timer: CameraTimer) -> Self { manager.attributes.captureTimer = timer; return self }
+
+    /**
      Changes the shape of the focus indicator visible when touching anywhere on the camera screen.
      */
     func setFocusImage(_ image: UIImage) -> Self { manager.cameraMetalView.focusIndicator.image = image; return self }

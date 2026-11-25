@@ -70,6 +70,11 @@ import AVKit
     var exposureBiasOffsetAtDragStart: Float = 0
     /// True while the preview is held but the focus & exposure lock has not taken yet.
     var isFocusExposureLockPending: Bool = false
+
+    // MARK: Capture Timer
+    var captureCountdownTask: Task<Void, Never>?
+    /// Length of one countdown second; shortened in tests.
+    var captureCountdownTickInterval: Double = 1
     
 //    //MARK: Macro
 //    private var zoomFactorObserver: NSKeyValueObservation?
@@ -685,6 +690,7 @@ extension CameraManager {
     /// removed from the hierarchy; a camera that only left the screen is paused
     /// instead (see `pause(_:)`). The next `setup()` rebuilds everything.
     func cancel() {
+        cancelCaptureCountdown()
         clearCurrentCapturedLivePhotoIfNeeded()
         removeAudioInput()
         deactivateAudioSession()
@@ -719,6 +725,7 @@ extension CameraManager {
     /// the pipeline. The reasons are independent: the session runs again only
     /// once every reason it was paused for has been resumed.
     func pause(_ reason: SessionPauseReason) {
+        cancelCaptureCountdown()
         pauseReasons.insert(reason)
         reconcileSessionState()
         // Already stopped for another reason: the cover is up, but it may be
@@ -971,7 +978,14 @@ private extension CameraManager {
 extension CameraManager {
     func captureOutput() {
         guard !isChanging else { return }
+        // The shutter during a countdown cancels it, as in the Camera app.
+        guard !isCaptureCountdownRunning else { return cancelCaptureCountdown() }
 
+        let startsCapture = attributes.outputType == .photo || !videoOutput.isRecordingOrStarting
+        guard attributes.captureTimer != .off, startsCapture else { return performCaptureOutput() }
+        startCaptureCountdown { [weak self] in self?.performCaptureOutput() }
+    }
+    private func performCaptureOutput() {
         switch attributes.outputType {
             case .photo: photoOutput.capture()
             case .video: videoOutput.toggleRecording()
@@ -1025,6 +1039,7 @@ extension CameraManager {
         attributes.photoAspectRatio = aspectRatio
     }
     func setOutputType(_ outputType: CameraOutputType) {
+        cancelCaptureCountdown()
         guard outputType != attributes.outputType, !isChanging else { return }
         attributes.outputType = outputType
     }

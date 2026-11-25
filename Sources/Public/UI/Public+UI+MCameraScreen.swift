@@ -265,6 +265,16 @@ public extension MCameraScreen {
      Enabled by default. Turning it off also ends a lock that is in place. Tap to focus is not affected.
      */
     func setFocusExposureControlsEnabled(_ isEnabled: Bool) { cameraManager.setFocusExposureControlsEnabled(isEnabled) }
+
+    /**
+     Set the self-timer: ``captureOutput()`` then counts down before it takes the photo, or before it starts a recording in video mode.
+
+     While it counts, ``captureCountdown`` holds the seconds left. Calling ``captureOutput()`` again, ``cancelCaptureCountdown()``, changing the output type or pausing the camera stops the countdown without capturing. ``startRecording()`` is not delayed, so a long-press video starts at once.
+     */
+    func setCaptureTimer(_ timer: CameraTimer) { cameraManager.setCaptureTimer(timer) }
+
+    /// Stops a running self-timer countdown without capturing.
+    func cancelCaptureCountdown() { cameraManager.cancelCaptureCountdown() }
 }
 
 // MARK: Attributes
@@ -300,6 +310,9 @@ public extension MCameraScreen {
     /// True while focus and exposure are locked after a long press on the preview (AE/AF Lock), for showing a lock label.
     var isFocusExposureLocked: Bool { cameraManager.attributes.isFocusExposureLocked }
     var isFocusExposureControlsEnabled: Bool { cameraManager.attributes.isFocusExposureControlsEnabled }
+    var captureTimer: CameraTimer { cameraManager.attributes.captureTimer }
+    /// Seconds left before the shutter fires while the self-timer counts down, from the timer's length down to 1; nil otherwise.
+    var captureCountdown: Int? { cameraManager.attributes.captureCountdown }
 
 }
 public extension MCameraScreen {

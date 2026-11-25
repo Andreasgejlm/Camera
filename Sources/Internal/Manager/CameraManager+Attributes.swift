@@ -49,4 +49,7 @@ struct CameraManagerAttributes {
     /// Whether long-press to lock focus and exposure, and dragging the exposure
     /// sun next to the focus square, are available.
     var isFocusExposureControlsEnabled: Bool = true
+    var captureTimer: CameraTimer = .off
+    /// Seconds left before the shutter fires, while a self-timer counts down.
+    var captureCountdown: Int? = nil
 }

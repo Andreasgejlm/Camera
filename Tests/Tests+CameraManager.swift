@@ -449,6 +449,51 @@ extension CameraManagerTests {
     }
 }
 
+// MARK: Capture Timer
+extension CameraManagerTests {
+    @Test("Capture Timer Counts Down Then Captures") func captureTimerCountsDown() async throws {
+        try await setupCamera()
+        cameraManager.captureCountdownTickInterval = 0.2
+        cameraManager.setCaptureTimer(.threeSeconds)
+
+        cameraManager.captureOutput()
+        #expect(cameraManager.attributes.captureCountdown == 3)
+        #expect(cameraManager.attributes.capturedMedia == nil)
+
+        await Task.sleep(seconds: 0.3)
+        #expect(cameraManager.attributes.captureCountdown == 2)
+
+        await Task.sleep(seconds: 0.6)
+        #expect(cameraManager.attributes.captureCountdown == nil)
+        #expect(cameraManager.attributes.capturedMedia != nil)
+    }
+    @Test("Capture Timer: Shutter Again Cancels") func captureTimerCancels() async throws {
+        try await setupCamera()
+        cameraManager.captureCountdownTickInterval = 0.2
+        cameraManager.setCaptureTimer(.threeSeconds)
+
+        cameraManager.captureOutput()
+        cameraManager.captureOutput()
+        #expect(cameraManager.attributes.captureCountdown == nil)
+
+        await Task.sleep(seconds: 0.8)
+        #expect(cameraManager.attributes.capturedMedia == nil)
+
+        // Pausing the camera cancels one as well.
+        cameraManager.captureOutput()
+        cameraManager.pause(.host)
+        #expect(cameraManager.isCaptureCountdownRunning == false)
+        #expect(cameraManager.attributes.captureCountdown == nil)
+    }
+    @Test("Capture Timer: Off Captures At Once") func captureTimerOff() async throws {
+        try await setupCamera()
+
+        cameraManager.captureOutput()
+        #expect(cameraManager.attributes.captureCountdown == nil)
+        #expect(cameraManager.attributes.capturedMedia != nil)
+    }
+}
+
 // MARK: Set Flash Mode
 extension CameraManagerTests {
     @Test("Set Flash Mode") func setFlashMode() async throws {
