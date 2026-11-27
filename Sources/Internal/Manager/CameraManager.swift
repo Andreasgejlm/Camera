@@ -63,6 +63,7 @@ import AVKit
     /// only records the reason, so a stop can never be queued ahead of it.
     private var isFirstStartQueued: Bool = false
     private var audioRouteObserver: (any NSObjectProtocol)?
+    private var captureSessionObservers: [any NSObjectProtocol] = []
     /// Readies the audio session for recording; runs on `sessionQueue`.
     /// Replaced in tests, which have no audio hardware to start.
     var activateAudioSession: @Sendable () -> Void = { CameraManager.activateAudioSessionForRecording() }
@@ -495,7 +496,7 @@ extension CameraManager {
         let connection: String = switch audioConnection {
             case .none: ""
             case .some(.none): " audioConnection=none"
-            case .some(.some(let connection)): " audioConnection(active=\(connection.isActive) enabled=\(connection.isEnabled))"
+            case .some(.some(let connection)): " audioConnection(active=\(connection.isActive) enabled=\(connection.isEnabled) \(audioLevels(of: connection)))"
         }
         print("🎧 \(label) | otherAudioPlaying=\(audio.isOtherAudioPlaying) category=\(audio.category.rawValue) mode=\(audio.mode.rawValue) options=\(audio.categoryOptions.rawValue) rate=\(Int(audio.sampleRate)) inputAvailable=\(audio.isInputAvailable) outputs=\(outputs) inputs=\(inputs)\(connection)\(failure)")
         #endif
@@ -505,12 +506,49 @@ extension CameraManager {
     func traceRecordingAudio(_ label: String) {
         Self.traceAudioSession(label, audioConnection: .some(videoOutput.output.connection(with: .audio)))
     }
+    /// The mic's live level on a connection: the channel count and, per
+    /// channel, the average and peak power in dB. The levels move only while
+    /// audio actually flows through the connection, so levels stuck at one
+    /// value (or no channels) on an enabled connection mean the mic delivers
+    /// nothing, whatever `isActive` says.
+    nonisolated static func audioLevels(of connection: AVCaptureConnection) -> String {
+        let channels = connection.audioChannels
+        let levels = channels.map { String(format: "%.1f/%.1f", $0.averagePowerLevel, $0.peakHoldLevel) }
+        return "channels=\(channels.count) levels(avg/peak dB)=\(levels)"
+    }
+    /// Debug aid for silent recordings (camera issue #12): traces the mic's
+    /// level on the movie output's connection a few moments after it was
+    /// switched on, to tell a mic that delivers audio from one that does not.
+    nonisolated static func traceAudioLevelsAfterRecordingStarts(_ connection: AVCaptureConnection?, on queue: DispatchQueue) {
+        #if DEBUG
+        let box = UncheckedSendableBox(value: connection)
+        for delay in [0.3, 1.0, 3.0] {
+            queue.asyncAfter(deadline: .now() + delay) {
+                traceAudioSession("recording audio +\(delay)s", audioConnection: .some(box.value))
+            }
+        }
+        #endif
+    }
     func traceAudioRouteChanges() {
         #if DEBUG
         guard audioRouteObserver == nil else { return }
         audioRouteObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { note in
             let reason = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
             Self.traceAudioSession("ROUTE CHANGE reason=\(reason)")
+        }
+        // Interruptions and runtime errors of the capture session, which can
+        // stop the mic without any change to the audio session.
+        let captureSessionEvents: [(Notification.Name, String)] = [
+            (AVCaptureSession.wasInterruptedNotification, "CAPTURE SESSION INTERRUPTED"),
+            (AVCaptureSession.interruptionEndedNotification, "CAPTURE SESSION INTERRUPTION ENDED"),
+            (AVCaptureSession.runtimeErrorNotification, "CAPTURE SESSION RUNTIME ERROR"),
+        ]
+        for (name, label) in captureSessionEvents {
+            captureSessionObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { note in
+                let reason = note.userInfo?[AVCaptureSessionInterruptionReasonKey].map { " reason=\($0)" } ?? ""
+                let error = note.userInfo?[AVCaptureSessionErrorKey].map { " error=\($0)" } ?? ""
+                Self.traceAudioSession("\(label)\(reason)\(error)")
+            })
         }
         #endif
     }
@@ -632,15 +670,20 @@ extension CameraManager {
     /// mic input itself has been attached since setup, so the running
     /// session's topology does not change here and the preview is not rebuilt.
     func prepareAudioForRecording() async {
-        guard audioInput != nil else { return }
+        guard audioInput != nil else {
+            Self.traceAudioSession("recording without a mic attached (setupError=\(audioSetupError.map { "\($0)" } ?? "none"))")
+            return
+        }
 
         let connection = UncheckedSendableBox(value: videoOutput.output.connection(with: .audio))
         let activateAudioSession = activateAudioSession
+        let queue = sessionQueue
         await withCheckedContinuation { continuation in
-            sessionQueue.async {
+            queue.async {
                 activateAudioSession()
                 connection.value?.isEnabled = true
                 Self.traceAudioSession("recording audio on", audioConnection: .some(connection.value))
+                Self.traceAudioLevelsAfterRecordingStarts(connection.value, on: queue)
                 continuation.resume()
             }
         }

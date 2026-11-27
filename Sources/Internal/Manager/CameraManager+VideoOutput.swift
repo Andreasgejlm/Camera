@@ -170,9 +170,30 @@ extension CameraManagerVideoOutput {
     }
 }
 
+// MARK: Trace
+private extension CameraManagerVideoOutput {
+    /// The connections a recording draws from, for the 🎧 trace: whether the
+    /// mic's connection is among them, and its level (camera issue #12).
+    static func describe(_ connections: [AVCaptureConnection]) -> String {
+        connections.map { connection in
+            let types = connection.inputPorts.map(\.mediaType.rawValue).joined(separator: "+")
+            let audio = connection.audioChannels.isEmpty ? "" : " \(CameraManager.audioLevels(of: connection))"
+            return "[\(types) active=\(connection.isActive) enabled=\(connection.isEnabled)\(audio)]"
+        }.joined(separator: " ")
+    }
+}
+
 // MARK: Receive Data
 extension CameraManagerVideoOutput: @preconcurrency AVCaptureFileOutputRecordingDelegate {
+    func fileOutput(_ output: AVCaptureFileOutput, didStartRecordingTo fileURL: URL, from connections: [AVCaptureConnection]) {
+        #if DEBUG
+        CameraManager.traceAudioSession("movie recording started | \(Self.describe(connections))")
+        #endif
+    }
     func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: (any Error)?) {
+        #if DEBUG
+        CameraManager.traceAudioSession("movie recording finished | \(Self.describe(connections))", error: error)
+        #endif
         Task {
             // Covers recordings the system ends on its own (interruption, disk full)
             // without going through stopRecording().
