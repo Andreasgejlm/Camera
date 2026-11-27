@@ -90,7 +90,7 @@ extension CameraFocusIndicatorView {
 
         guard let sunView else { return }
         let sunSize = Self.sunSize
-        let travel = size * 0.75
+        let travel = Self.sunTravel(size: size)
         let centerX = sunSide == .trailing ? size + Self.sunGap + sunSize / 2 : -Self.sunGap - sunSize / 2
         let centerY = size / 2 - exposureFraction * travel
         sunView.frame = .init(x: centerX - sunSize / 2, y: centerY - sunSize / 2, width: sunSize, height: sunSize)
@@ -120,6 +120,26 @@ extension CameraFocusIndicatorView {
         squareView.layer.removeAnimation(forKey: Self.throbKey)
     }
     private static let throbKey = "throb"
+
+    /// How far the sun travels either way from the middle of its line.
+    private static func sunTravel(size: CGFloat) -> CGFloat { size * 0.75 }
+    /// Margin around the square, the sun and its line in which an exposure drag may start.
+    static let exposureDragMargin: CGFloat = 24
+    /// Where an exposure drag may start: the square, the sun and the whole of
+    /// its line, with a margin. In the coordinates of a square of `size` whose
+    /// origin is its top leading corner.
+    static func exposureDragArea(size: CGFloat, sunSide: SunSide) -> CGRect {
+        let travel = Self.sunTravel(size: size)
+        let lineTop = size / 2 - travel - sunSize / 2
+        let lineBottom = size / 2 + travel + sunSize / 2
+        let minX = sunSide == .trailing ? 0 : -sunReach
+        return CGRect(x: minX, y: lineTop, width: size + sunReach, height: lineBottom - lineTop).insetBy(dx: -exposureDragMargin, dy: -exposureDragMargin)
+    }
+    /// The same area in the superview's coordinates. From the centre and
+    /// bounds, which the entrance and lock animations' scale leaves alone.
+    var exposureDragArea: CGRect {
+        Self.exposureDragArea(size: bounds.width, sunSide: sunSide).offsetBy(dx: center.x - bounds.width / 2, dy: center.y - bounds.height / 2)
+    }
 
     func setExposureLineVisible(_ isVisible: Bool) {
         UIView.animate(withDuration: 0.2) { [self] in
