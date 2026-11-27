@@ -166,6 +166,11 @@ extension CameraManager {
     var canAdjustExposureWithSun: Bool {
         attributes.isFocusExposureControlsEnabled && cameraMetalView.isFocusIndicatorVisible && !isChanging
     }
+    /// A drag changes the exposure only when it starts on or near the square
+    /// and its sun; drags elsewhere on the preview are left to the host.
+    func canAdjustExposureWithSun(from touchPoint: CGPoint) -> Bool {
+        canAdjustExposureWithSun && cameraMetalView.focusIndicatorView?.exposureDragArea.contains(touchPoint) == true
+    }
     func beginExposureAdjustment() {
         exposureBiasOffsetAtDragStart = exposureBiasOffset
         cameraMetalView.beginExposureAdjustment()

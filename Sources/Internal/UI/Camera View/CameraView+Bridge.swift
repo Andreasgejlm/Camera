@@ -103,9 +103,10 @@ extension CameraBridgeView.Coordinator {
 
 // MARK: On Pan
 extension CameraBridgeView.Coordinator: UIGestureRecognizerDelegate {
-    /// Drags the exposure sun. Only a vertical drag while the focus square is
-    /// on screen starts it, so sideways swipes and other drags in the host
-    /// still reach their own gestures.
+    /// Drags the exposure sun. Only a vertical drag that starts on or near
+    /// the focus square and its sun starts it, so sideways swipes and drags
+    /// elsewhere on the preview still reach the host's own gestures. Once
+    /// begun, the drag may leave that area.
     @MainActor @objc func onPanGesture(_ pan: UIPanGestureRecognizer) {
         let cameraManager = parent.cameraManager
         switch pan.state {
@@ -125,7 +126,10 @@ extension CameraBridgeView.Coordinator: UIGestureRecognizerDelegate {
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
 
         let velocity = pan.velocity(in: parent.inputView)
-        return abs(velocity.y) > abs(velocity.x) && parent.cameraManager.canAdjustExposureWithSun
+        // Where the finger went down, not where it is once the drag is recognised.
+        let location = pan.location(in: parent.inputView), translation = pan.translation(in: parent.inputView)
+        let startPoint = CGPoint(x: location.x - translation.x, y: location.y - translation.y)
+        return abs(velocity.y) > abs(velocity.x) && parent.cameraManager.canAdjustExposureWithSun(from: startPoint)
     }
     /// The hold and lock presses track the same touch, and the exposure drag
     /// may start after a finger rested long enough to begin a hold. Only this

@@ -428,6 +428,30 @@ extension CameraManagerTests {
         try cameraManager.setCameraFocus(at: .init(x: 100, y: 100))
         #expect(currentDevice.exposureTargetBias == 1)
     }
+    @Test("Exposure Drag Starts Only Near The Focus Square") func exposureDragArea() async throws {
+        try await setupCamera()
+        let margin = CameraFocusIndicatorContainer.exposureDragMargin
+
+        // The default square is 90 pt; its sun reaches 34 pt past the trailing
+        // edge and the sun's line 33.5 pt above and below the square.
+        let area = CameraFocusIndicatorContainer.exposureDragArea(size: 90, sunSide: .trailing)
+        #expect(area == CGRect(x: -margin, y: -33.5 - margin, width: 124 + 2 * margin, height: 157 + 2 * margin))
+        let mirrored = CameraFocusIndicatorContainer.exposureDragArea(size: 90, sunSide: .leading)
+        #expect(mirrored == area.offsetBy(dx: -34, dy: 0))
+
+        #expect(cameraManager.canAdjustExposureWithSun(from: .init(x: 200, y: 300)) == false)
+        try cameraManager.setCameraFocus(at: .init(x: 200, y: 300))
+
+        // On the square, on the sun, and inside the margin.
+        #expect(cameraManager.canAdjustExposureWithSun(from: .init(x: 200, y: 300)) == true)
+        #expect(cameraManager.canAdjustExposureWithSun(from: .init(x: 268, y: 300)) == true)
+        #expect(cameraManager.canAdjustExposureWithSun(from: .init(x: 140, y: 200)) == true)
+        // Elsewhere on the preview.
+        #expect(cameraManager.canAdjustExposureWithSun(from: .init(x: 120, y: 300)) == false)
+        #expect(cameraManager.canAdjustExposureWithSun(from: .init(x: 310, y: 300)) == false)
+        #expect(cameraManager.canAdjustExposureWithSun(from: .init(x: 200, y: 190)) == false)
+        #expect(cameraManager.canAdjustExposureWithSun(from: .init(x: 200, y: 420)) == false)
+    }
     @Test("Exposure Sun Unavailable When Controls Disabled") func exposureSunDisabled() async throws {
         try await setupCamera()
         cameraManager.setFocusExposureControlsEnabled(false)
