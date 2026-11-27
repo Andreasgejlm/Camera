@@ -262,13 +262,9 @@ private extension CameraManager {
         cameraLayer.isHidden = true
         cameraView.layer.addSublayer(cameraLayer)
         
-        #if targetEnvironment(simulator)
-        // Add a placeholder view for DEBUG/simulator mode
-        setupDebugPlaceholder()
-        #endif
+        if SimulatorCamera.usesMock { setupDebugPlaceholder() }
     }
-    
-    #if targetEnvironment(simulator)
+
     func setupDebugPlaceholder() {
         guard let cameraView = cameraView else {
             print("📷 DEBUG MODE: cameraView not initialized yet, skipping debug placeholder")
@@ -295,7 +291,6 @@ private extension CameraManager {
             label.centerYAnchor.constraint(equalTo: placeholderView.centerYAnchor)
         ])
     }
-    #endif
     func setupDeviceInputs() throws(MCameraError) {
         try captureSession.add(input: getCameraInput())
         // The mic input is attached here, before the session starts running, if
@@ -336,29 +331,22 @@ private extension CameraManager {
         try videoOutput.setup(parent: self)
     }
     func setupFrameRecorder() throws(MCameraError) {
-        #if targetEnvironment(simulator)
-        // Skip frame recorder in DEBUG/simulator mode - no real camera frames
-        print("📷 DEBUG MODE: Skipping frame recorder setup")
-        #else
+        if SimulatorCamera.usesMock {
+            print("📷 DEBUG MODE: Skipping frame recorder setup")
+            return
+        }
         let captureVideoOutput = AVCaptureVideoDataOutput()
         captureVideoOutput.setSampleBufferDelegate(cameraMetalView, queue: .main)
 
         try captureSession.add(output: captureVideoOutput)
-        #endif
     }
     func startSession() { Task {
-        #if targetEnvironment(simulator)
-        // Simplified session start for DEBUG/simulator mode
-        print("📷 DEBUG MODE: Starting mock session")
-        await startCaptureSessionForTheFirstTime()
-        
-        // Only animate if cameraView is set
-        if cameraView != nil {
-            cameraMetalView.performCameraEntranceAnimation()
-        } else {
-            print("📷 DEBUG MODE: cameraView not initialized, skipping entrance animation")
+        if SimulatorCamera.usesMock {
+            print("📷 DEBUG MODE: Starting mock session")
+            await startCaptureSessionForTheFirstTime()
+            if cameraView != nil { cameraMetalView.performCameraEntranceAnimation() }
+            return
         }
-        #else
         guard let device = getCameraInput()?.device else { return }
 
         await startCaptureSessionForTheFirstTime()
@@ -382,7 +370,6 @@ private extension CameraManager {
         await waitForFirstFrame(after: nil)
         await waitForDeviceToSettle()
         cameraMetalView.performCameraEntranceAnimation()
-        #endif
     }}
 }
 private extension CameraManager {

@@ -15,17 +15,17 @@ import AVKit
 // MARK: Initializer
 public extension MCamera {
     init() {
-        #if targetEnvironment(simulator)
-        self.init(manager: .init(
-            captureSession: MockCaptureSession(),
-            captureDeviceInputType: MockDeviceInput.self
-        ))
-        #else
-        self.init(manager: .init(
-            captureSession: AVCaptureSession(),
-            captureDeviceInputType: AVCaptureDeviceInput.self
-        ))
-        #endif
+        if SimulatorCamera.usesMock {
+            self.init(manager: .init(
+                captureSession: MockCaptureSession(),
+                captureDeviceInputType: MockDeviceInput.self
+            ))
+        } else {
+            self.init(manager: .init(
+                captureSession: AVCaptureSession(),
+                captureDeviceInputType: AVCaptureDeviceInput.self
+            ))
+        }
     }
 }
 

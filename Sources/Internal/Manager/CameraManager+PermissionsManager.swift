@@ -20,11 +20,10 @@ extension CameraManagerPermissionsManager {
     /// the camera from opening. It is asked for on request, with
     /// `requestMicrophoneAccess()`.
     func requestAccess(parent: CameraManager) async throws(MCameraError) {
-        #if targetEnvironment(simulator)
-        // Skip permissions in DEBUG/simulator mode - using mock devices
-        print("📷 DEBUG MODE: Skipping camera permissions (using mock devices)")
-        return
-        #else
+        if SimulatorCamera.usesMock {
+            print("📷 DEBUG MODE: Skipping camera permissions (using mock devices)")
+            return
+        }
         do {
             try await getAuthorizationStatus(for: .video)
         }
@@ -32,7 +31,6 @@ extension CameraManagerPermissionsManager {
             parent.attributes.error = error
             throw error
         }
-        #endif
     }
 }
 
@@ -42,12 +40,8 @@ extension CameraManagerPermissionsManager {
     /// once access has been granted, so the session never reaches for the
     /// microphone before the person has said yes.
     var isMicrophoneAuthorized: Bool {
-        #if targetEnvironment(simulator)
-        // Mock devices, as in `requestAccess(parent:)`.
-        true
-        #else
-        AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-        #endif
+        // Mock devices need no access, as in `requestAccess(parent:)`.
+        SimulatorCamera.usesMock || AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     }
 
     /// Shows the system prompt if the person has not answered yet. Returns

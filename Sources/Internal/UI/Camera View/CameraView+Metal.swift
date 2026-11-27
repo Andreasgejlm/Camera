@@ -37,17 +37,17 @@ import AVKit
 // MARK: Setup
 extension CameraMetalView {
     func setup(parent: CameraManager) throws(MCameraError) {
-        #if targetEnvironment(simulator)
-        // Minimal setup for DEBUG/simulator mode
-        print("📷 DEBUG MODE: Skipping Metal view setup (no camera frames)")
-        self.parent = parent
-        #else
+        if SimulatorCamera.usesMock {
+            // Simulator without a camera: no frames to show.
+            print("📷 DEBUG MODE: Skipping Metal view setup (no camera frames)")
+            self.parent = parent
+            return
+        }
         guard let metalDevice = MTLCreateSystemDefaultDevice() else { throw .cannotSetupMetalDevice }
 
         self.assignInitialValues(parent: parent, metalDevice: metalDevice)
         self.configureMetalView(metalDevice: metalDevice)
         self.addToParent(parent.cameraView)
-        #endif
     }
 }
 private extension CameraMetalView {
@@ -79,13 +79,8 @@ private extension CameraMetalView {
 // MARK: Camera Entrance
 extension CameraMetalView {
     func performCameraEntranceAnimation() {
-        #if targetEnvironment(simulator)
-        // Skip animation in DEBUG mode if parent not set
-        guard let parent = parent else {
-            print("📷 DEBUG MODE: Skipping entrance animation (parent not set)")
-            return
-        }
-        #endif
+        // Not set when the camera failed to set up.
+        guard let parent = parent else { return }
         
         UIView.animate(withDuration: 0.33) { [self] in
             parent.cameraView.alpha = 1

@@ -15,14 +15,42 @@ import AVKit
 @MainActor class CameraManagerMotionManager {
     private(set) var parent: CameraManager!
     private(set) var manager: CMMotionManager = .init()
+    /// Stands in for the accelerometer where there is none (the simulator).
+    private var orientationTimer: Timer?
 }
 
 // MARK: Setup
 extension CameraManagerMotionManager {
     func setup(parent: CameraManager) {
         self.parent = parent
+        guard manager.isAccelerometerAvailable else { return startOrientationTimer() }
         manager.accelerometerUpdateInterval = 0.05
         manager.startAccelerometerUpdates(to: .current ?? .init(), withHandler: handleAccelerometerUpdates)
+    }
+}
+private extension CameraManagerMotionManager {
+    /// Without an accelerometer the frame orientation would never follow a
+    /// camera flip, so the interface's orientation is followed instead.
+    func startOrientationTimer() {
+        orientationTimer?.invalidate()
+        orientationTimer = .scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.handleOrientationWithoutAccelerometer() }
+        }
+        handleOrientationWithoutAccelerometer()
+    }
+    func handleOrientationWithoutAccelerometer() {
+        guard parent != nil else { return }
+        let newDeviceOrientation: AVCaptureVideoOrientation = switch UIDevice.current.orientation {
+            case .landscapeLeft: .landscapeLeft
+            case .landscapeRight: .landscapeRight
+            case .portraitUpsideDown: .portraitUpsideDown
+            case .portrait: .portrait
+            default: parent.attributes.deviceOrientation
+        }
+        updateDeviceOrientation(newDeviceOrientation)
+        updateUserBlockedScreenRotation()
+        updateFrameOrientation()
+        redrawGrid()
     }
 }
 private extension CameraManagerMotionManager {
@@ -103,6 +131,8 @@ private extension CameraManagerMotionManager {
 // MARK: Reset
 extension CameraManagerMotionManager {
     func reset() {
+        orientationTimer?.invalidate()
+        orientationTimer = nil
         manager.stopAccelerometerUpdates()
     }
 }

@@ -83,20 +83,18 @@ extension CameraManagerPhotoOutput {
 // MARK: Capture
 extension CameraManagerPhotoOutput {
     func capture() {
-        #if targetEnvironment(simulator)
-        // Create a mock photo for DEBUG/simulator mode
-        captureMockPhoto()
-        #else
-        let settings = getPhotoOutputSettings()
-        setupPendingCapture(for: settings)
+        if SimulatorCamera.usesMock {
+            captureMockPhoto()
+        } else {
+            let settings = getPhotoOutputSettings()
+            setupPendingCapture(for: settings)
 
-        configureOutput()
-        output.capturePhoto(with: settings, delegate: self)
-        #endif
+            configureOutput()
+            output.capturePhoto(with: settings, delegate: self)
+        }
         parent.cameraMetalView.performImageCaptureAnimation()
     }
-    
-    #if targetEnvironment(simulator)
+
     private func captureMockPhoto() {
         // Create a simple placeholder image
         let size = CGSize(width: 1920, height: 1080)
@@ -131,7 +129,6 @@ extension CameraManagerPhotoOutput {
         let capturedMedia = MCameraMedia(image: croppedImage, metadata: nil as [String: Any]?)
         parent.setCapturedMedia(capturedMedia)
     }
-    #endif
 }
 private extension CameraManagerPhotoOutput {
     func getPhotoOutputSettings() -> AVCapturePhotoSettings {
