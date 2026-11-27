@@ -476,14 +476,29 @@ extension CameraManager {
 
     /// Debug aid for "OneLens paused my music" reports: `otherAudioPlaying`
     /// turning false right after one of these lines names the step that did it.
-    nonisolated static func traceAudioSession(_ label: String, error: (any Error)? = nil) {
+    ///
+    /// With `audioConnection`, the line also says whether the movie output's
+    /// mic connection is active (the pipeline has an audio track to record)
+    /// and enabled (the mic is on). A recording that starts with the
+    /// connection inactive is written without sound (camera issue #12).
+    nonisolated static func traceAudioSession(_ label: String, audioConnection: AVCaptureConnection?? = nil, error: (any Error)? = nil) {
         #if DEBUG
         let audio = AVAudioSession.sharedInstance()
         let outputs = audio.currentRoute.outputs.map(\.portType.rawValue)
         let inputs = audio.currentRoute.inputs.map(\.portType.rawValue)
         let failure = error.map { " error=\($0)" } ?? ""
-        print("🎧 \(label) | otherAudioPlaying=\(audio.isOtherAudioPlaying) category=\(audio.category.rawValue) mode=\(audio.mode.rawValue) options=\(audio.categoryOptions.rawValue) rate=\(Int(audio.sampleRate)) outputs=\(outputs) inputs=\(inputs)\(failure)")
+        let connection: String = switch audioConnection {
+            case .none: ""
+            case .some(.none): " audioConnection=none"
+            case .some(.some(let connection)): " audioConnection(active=\(connection.isActive) enabled=\(connection.isEnabled))"
+        }
+        print("🎧 \(label) | otherAudioPlaying=\(audio.isOtherAudioPlaying) category=\(audio.category.rawValue) mode=\(audio.mode.rawValue) options=\(audio.categoryOptions.rawValue) rate=\(Int(audio.sampleRate)) inputAvailable=\(audio.isInputAvailable) outputs=\(outputs) inputs=\(inputs)\(connection)\(failure)")
         #endif
+    }
+    /// `traceAudioSession` with the movie output's mic connection, for the
+    /// steps that rebuild the capture pipeline.
+    func traceRecordingAudio(_ label: String) {
+        Self.traceAudioSession(label, audioConnection: .some(videoOutput.output.connection(with: .audio)))
     }
     func traceAudioRouteChanges() {
         #if DEBUG
@@ -619,7 +634,7 @@ extension CameraManager {
             sessionQueue.async {
                 Self.activateAudioSessionForRecording()
                 connection.value?.isEnabled = true
-                Self.traceAudioSession("recording audio on")
+                Self.traceAudioSession("recording audio on", audioConnection: .some(connection.value))
                 continuation.resume()
             }
         }
@@ -1068,6 +1083,7 @@ extension CameraManager {
     func setCameraPosition(_ position: CameraPosition) async throws {
         guard position != attributes.cameraPosition, !isChanging else { return }
 
+        traceRecordingAudio("camera flip start")
         await cameraMetalView.beginCameraFlipAnimation()
         // The outgoing camera keeps its settings for when it comes back.
         returnDeviceToContinuousFocusAndExposure()
@@ -1099,8 +1115,9 @@ extension CameraManager {
         }
 
         updateMacroObservation(position: position, device: device)
-        
+
         await cameraMetalView.finishCameraFlipAnimation()
+        traceRecordingAudio("camera flip done")
     }
 }
 private extension CameraManager {
@@ -1318,9 +1335,11 @@ extension CameraManager {
             guard targetResolution != attributes.resolution else { continue }
 
             try await performFormatTransition {
+                self.traceRecordingAudio("format change start \(targetResolution.rawValue)")
                 await self.applySessionPresetOffMain(targetResolution)
                 self.attributes.resolution = targetResolution
             } afterFramesResume: {
+                self.traceRecordingAudio("format change done \(targetResolution.rawValue)")
                 // Applied only once frames flow at the new format — setting the zoom
                 // while the session is still reconfiguring lets the reconfiguration
                 // override it, leaving the wrong lens/perspective visible.
