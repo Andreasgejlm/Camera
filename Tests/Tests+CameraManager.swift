@@ -22,6 +22,25 @@ import SwiftUI
 
 // MARK: Setup
 extension CameraManagerTests {
+    @Test("Setup: Waits For The Camera View") func setupWaitsForCameraView() async throws {
+        // `onAppear` can start setup before SwiftUI has made the camera view.
+        let setup = Task { try await cameraManager.setup() }
+        await Task.sleep(seconds: 0.3)
+        #expect(cameraManager.captureSession.outputs.isEmpty)
+
+        cameraManager.initialize(in: UIView(frame: .init(origin: .zero, size: .init(width: 1000, height: 1000))))
+        try await setup.value
+        #expect(cameraManager.captureSession.outputs.isEmpty == false)
+        #expect(cameraManager.cameraGridView.parent != nil)
+    }
+    @Test("Setup: Cancel Releases A Setup Waiting For The View") func cancelReleasesWaitingSetup() async throws {
+        let setup = Task { try await cameraManager.setup() }
+        await Task.sleep(seconds: 0.3)
+
+        cameraManager.cancel()
+        try await setup.value
+        #expect(cameraManager.captureSession.outputs.isEmpty)
+    }
     @Test("Setup: Default Attributes") func setupWithDefaultAttributes() async throws {
         try await setupCamera()
 
