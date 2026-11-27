@@ -63,10 +63,10 @@ extension CameraManagerVideoOutput {
     func startRecording() {
         guard !isRecording else { return }
 
-        #if targetEnvironment(simulator)
-        // Mock recording for DEBUG/simulator mode
-        startMockRecording()
-        #else
+        if SimulatorCamera.usesMock {
+            startMockRecording()
+            return
+        }
         guard !isRecordingRequested, let url = prepareUrlForVideoRecording() else { return }
 
         // The session's topology does not change here: the mic input was
@@ -88,17 +88,14 @@ extension CameraManagerVideoOutput {
             configureOutput()
             output.startRecording(to: url, recordingDelegate: self)
         }
-        #endif
     }
-    
-    #if targetEnvironment(simulator)
+
     private func startMockRecording() {
         print("📹 DEBUG MODE: Mock recording started")
         parent.attributes.recordingOrientation = parent.attributes.deviceOrientation
         startRecordingTimer()
         parent.objectWillChange.send()
     }
-    #endif
 }
 private extension CameraManagerVideoOutput {
     var isRecording: Bool { output.isRecording }
@@ -144,17 +141,16 @@ private extension CameraManagerVideoOutput {
 // MARK: Stop Recording
 extension CameraManagerVideoOutput {
     func stopRecording() {
-        #if targetEnvironment(simulator)
-        stopMockRecording()
-        #else
-        isRecordingRequested = false
-        output.stopRecording()
-        #endif
+        if SimulatorCamera.usesMock {
+            stopMockRecording()
+        } else {
+            isRecordingRequested = false
+            output.stopRecording()
+        }
         parent.attributes.recordingOrientation = nil
         timer.reset()
     }
-    
-    #if targetEnvironment(simulator)
+
     private func stopMockRecording() {
         print("📹 DEBUG MODE: Mock recording stopped")
         // Create a mock video URL
@@ -172,7 +168,6 @@ extension CameraManagerVideoOutput {
         print("📹 DEBUG MODE: Mock video created")
         return nil
     }
-    #endif
 }
 
 // MARK: Receive Data
