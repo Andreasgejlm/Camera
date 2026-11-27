@@ -11,6 +11,7 @@
 
 import Testing
 import SwiftUI
+import AVKit
 @testable import MijickCamera
 
 @MainActor @Suite("Camera Manager Tests") struct CameraManagerTests {
@@ -752,6 +753,61 @@ extension CameraManagerTests {
     }
 }
 
+// MARK: Audio Session Before Pipeline Rebuilds
+extension CameraManagerTests {
+    @Test("Format Change: Audio Session Readied Before The Preset Changes") func formatChangeReadiesAudioFirst() async throws {
+        try await setupCamera()
+        let activations = recordAudioSessionActivations { $0.sessionPreset.rawValue }
+
+        try await cameraManager.setResolution(.hd1280x720)
+
+        #expect(activations.values == [AVCaptureSession.Preset.hd1920x1080.rawValue])
+        #expect(cameraManager.captureSession.sessionPreset == .hd1280x720)
+    }
+    @Test("Format Change: Unchanged Preset Leaves The Audio Session Alone") func unchangedPresetSkipsAudio() async throws {
+        try await setupCamera()
+        let activations = recordAudioSessionActivations { $0.sessionPreset.rawValue }
+
+        try await cameraManager.setResolution(cameraManager.attributes.resolution)
+
+        #expect(activations.values.isEmpty)
+    }
+    @Test("Camera Flip: Audio Session Readied Before The Input Swap") func flipReadiesAudioFirst() async throws {
+        try await setupCamera()
+        let backCameraID = try #require(cameraManager.backCameraInput?.device.uniqueID)
+        let frontCameraID = try #require(cameraManager.frontCameraInput?.device.uniqueID)
+        let activations = recordAudioSessionActivations { $0.deviceInputs.map { $0.device.uniqueID }.joined(separator: ",") }
+
+        try await cameraManager.setCameraPosition(.front)
+
+        #expect(activations.values.count == 1)
+        #expect(activations.values.first?.contains(backCameraID) == true)
+        #expect(activations.values.first?.contains(frontCameraID) == false)
+        #expect(currentDevice.uniqueID == frontCameraID)
+    }
+    @Test("Pipeline Rebuild: No Mic Leaves The Audio Session Alone") func rebuildWithoutMicSkipsAudio() async throws {
+        cameraManager.attributes.isAudioSourceAvailable = false
+        try await setupCamera()
+        let activations = recordAudioSessionActivations { $0.sessionPreset.rawValue }
+
+        try await cameraManager.setResolution(.hd1280x720)
+        try await cameraManager.setCameraPosition(.front)
+
+        #expect(activations.values.isEmpty)
+    }
+    @Test("Pipeline Rebuild: Stopped Session Leaves The Audio Session Alone") func rebuildWhilePausedSkipsAudio() async throws {
+        try await setupCamera()
+        cameraManager.pause(.screenHidden)
+        await waitForSessionQueue()
+        let activations = recordAudioSessionActivations { $0.sessionPreset.rawValue }
+
+        try await cameraManager.setResolution(.hd1280x720)
+
+        #expect(activations.values.isEmpty)
+        #expect(cameraManager.captureSession.sessionPreset == .hd1280x720)
+    }
+}
+
 // MARK: Set Frame Rate
 extension CameraManagerTests {
     @Test("Set Frame Rate") func setFrameRate() async throws {
@@ -793,4 +849,22 @@ private extension CameraManagerTests {
 }
 private extension CameraManagerTests {
     var currentDevice: any CaptureDevice { cameraManager.getCameraInput()!.device }
+}
+private extension CameraManagerTests {
+    /// Replaces the audio session activation with a recorder that notes
+    /// `snapshot` of the capture session at the moment it runs.
+    func recordAudioSessionActivations(_ snapshot: @escaping @Sendable (any CaptureSession) -> String) -> AudioSessionActivations {
+        let activations = AudioSessionActivations()
+        let session = cameraManager.captureSession
+        cameraManager.activateAudioSession = { activations.append(snapshot(session)) }
+        return activations
+    }
+}
+/// Filled on the session queue, read on the main actor.
+private final class AudioSessionActivations: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String] = []
+
+    var values: [String] { lock.withLock { storage } }
+    func append(_ value: String) { lock.withLock { storage.append(value) } }
 }

@@ -63,6 +63,9 @@ import AVKit
     /// only records the reason, so a stop can never be queued ahead of it.
     private var isFirstStartQueued: Bool = false
     private var audioRouteObserver: (any NSObjectProtocol)?
+    /// Readies the audio session for recording; runs on `sessionQueue`.
+    /// Replaced in tests, which have no audio hardware to start.
+    var activateAudioSession: @Sendable () -> Void = { CameraManager.activateAudioSessionForRecording() }
 
     // MARK: Focus & Exposure
     /// Exposure change from dragging the sun next to the focus square, in EV,
@@ -462,8 +465,10 @@ extension CameraManager {
     /// at the moment the mic's connection is switched on (see
     /// `prepareAudioForRecording`), and does so without the audible dropout in
     /// other apps' audio that activating a hand-configured session causes.
-    /// Until then the audio session is not touched at all, so opening the
-    /// camera, or returning to it, cannot disturb music that is playing.
+    /// Until then the audio session is not touched, except to ready it before
+    /// a format change or flip while nothing else is playing (see
+    /// `prepareAudioSessionForPipelineRebuild`), so opening the camera, or
+    /// returning to it, cannot disturb music that is playing.
     func configureAudioSession() {
         guard let session = captureSession as? AVCaptureSession else { return }
 
@@ -630,9 +635,10 @@ extension CameraManager {
         guard audioInput != nil else { return }
 
         let connection = UncheckedSendableBox(value: videoOutput.output.connection(with: .audio))
+        let activateAudioSession = activateAudioSession
         await withCheckedContinuation { continuation in
             sessionQueue.async {
-                Self.activateAudioSessionForRecording()
+                activateAudioSession()
                 connection.value?.isEnabled = true
                 Self.traceAudioSession("recording audio on", audioConnection: .some(connection.value))
                 continuation.resume()
@@ -656,8 +662,8 @@ extension CameraManager {
     /// then. The configuration is the one the capture session applies itself
     /// (`automaticallyConfiguresApplicationAudioSession` with
     /// `configuresApplicationAudioSessionToMixWithOthers`), so its own step is
-    /// no change. The camera still leaves the audio session alone until a
-    /// recording starts.
+    /// no change. Besides a recording, only a pipeline rebuild on the running
+    /// session (see `prepareAudioSessionForPipelineRebuild`) runs this.
     nonisolated static func activateAudioSessionForRecording() {
         let audioSession = AVAudioSession.sharedInstance()
         guard !audioSession.isOtherAudioPlaying else { return }
@@ -671,6 +677,32 @@ extension CameraManager {
             // The capture session still configures it when the connection is
             // switched on; at worst this recording is the silent one.
             traceAudioSession("recording audio session setup failed", error: error)
+        }
+    }
+    /// Readies the audio session before a step that rebuilds the capture
+    /// pipeline of the running session: a preset change (`setResolution`) or
+    /// a camera input swap (`setCameraPosition`).
+    ///
+    /// A pipeline rebuilt while the audio session is idle stays without an
+    /// audio track: every recording made on it is silent, even though
+    /// `prepareAudioForRecording` readies the audio session first, until the
+    /// next rebuild (camera issue #12, OneLens issue #150). Readied here, the
+    /// rebuild includes the mic. The mic's connection stays off, so the mic
+    /// is not opened; after any recording the audio session is left in this
+    /// same state. As in `activateAudioSessionForRecording`, nothing is done
+    /// while another app plays audio.
+    ///
+    /// A stopped session is skipped: it builds its pipeline when it starts,
+    /// and the first recording after a start has its sound.
+    func prepareAudioSessionForPipelineRebuild() async {
+        guard audioInput != nil, isSessionStartRequested else { return }
+
+        let activateAudioSession = activateAudioSession
+        await withCheckedContinuation { continuation in
+            sessionQueue.async {
+                activateAudioSession()
+                continuation.resume()
+            }
         }
     }
     /// Closes the mic again once a recording has ended.
@@ -1084,7 +1116,11 @@ extension CameraManager {
         guard position != attributes.cameraPosition, !isChanging else { return }
 
         traceRecordingAudio("camera flip start")
+        // Swapping the camera input rebuilds the pipeline too. The audio
+        // session is readied while the flip animation starts.
+        async let audioSessionReady: Void = prepareAudioSessionForPipelineRebuild()
         await cameraMetalView.beginCameraFlipAnimation()
+        await audioSessionReady
         // The outgoing camera keeps its settings for when it comes back.
         returnDeviceToContinuousFocusAndExposure()
         try changeCameraInput(position)
@@ -1336,6 +1372,9 @@ extension CameraManager {
 
             try await performFormatTransition {
                 self.traceRecordingAudio("format change start \(targetResolution.rawValue)")
+                // Before the preset change rebuilds the pipeline; runs
+                // while the blur animates in.
+                await self.prepareAudioSessionForPipelineRebuild()
                 await self.applySessionPresetOffMain(targetResolution)
                 self.attributes.resolution = targetResolution
             } afterFramesResume: {
