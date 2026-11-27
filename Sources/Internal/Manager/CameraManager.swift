@@ -52,6 +52,8 @@ import AVKit
     /// being applied out of order.
     private let sessionQueue = DispatchQueue(label: "com.mijick.camera.session", qos: .userInitiated)
     private var setupState: SetupState = .idle
+    /// Setups waiting for `initialize(in:)` to hand over the camera view.
+    private var cameraViewWaiters: [CheckedContinuation<Void, Never>] = []
     /// Why the session is currently held stopped. It runs only while this is empty.
     private var pauseReasons: Set<SessionPauseReason> = []
     /// The running state last sent to `sessionQueue`. Tracked here instead of
@@ -112,6 +114,23 @@ import AVKit
 extension CameraManager {
     func initialize(in view: UIView) {
         cameraView = view
+        resumeCameraViewWaiters()
+    }
+}
+private extension CameraManager {
+    /// `setup()` runs from the camera's `onAppear`, which can come before
+    /// SwiftUI has made the view that `initialize(in:)` receives. On a device
+    /// the permission prompt usually takes longer, but where access is
+    /// granted at once (a simulator with a virtual camera) setup would reach
+    /// the view first. It waits here instead.
+    func waitForCameraView() async {
+        guard cameraView == nil else { return }
+        await withCheckedContinuation { cameraViewWaiters.append($0) }
+    }
+    func resumeCameraViewWaiters() {
+        let waiters = cameraViewWaiters
+        cameraViewWaiters.removeAll()
+        waiters.forEach { $0.resume() }
     }
 }
 
@@ -126,6 +145,9 @@ extension CameraManager {
         defer { if setupState == .inProgress { setupState = .idle } }
 
         try await permissionsManager.requestAccess(parent: self)
+        await waitForCameraView()
+        // Cancelled while waiting: the view never came.
+        guard cameraView != nil else { return }
 
         setupCameraLayer()
         configureAudioSession()
@@ -693,6 +715,8 @@ extension CameraManager {
         isSessionStartRequested = false
         isFirstStartQueued = false
         cameraMetalView.isPresentingFrames = true
+        // A setup still waiting for the view gives up (see `waitForCameraView`).
+        resumeCameraViewWaiters()
     }
 }
 
