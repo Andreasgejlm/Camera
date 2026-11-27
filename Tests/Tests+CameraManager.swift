@@ -89,6 +89,13 @@ extension CameraManagerTests {
         #expect(cameraManager.attributes.frameRate == Int32(currentDevice.maxFrameRate!))
         #expect(cameraManager.attributes.cameraExposure.iso == currentDevice.maxISO)
     }
+    @Test("Setup: Recordings Are Written Without Movie Fragments") func setupDisablesMovieFragments() async throws {
+        // With 10-second fragments, recordings longer than 10 seconds lost
+        // their audio track (#12).
+        try await setupCamera()
+
+        #expect(cameraManager.videoOutput.output.movieFragmentInterval.isValid == false)
+    }
     @Test("Setup: Audio Source Unavailable") func setupWithAudioSourceUnavailable() async throws {
         cameraManager.attributes.isAudioSourceAvailable = false
         try await setupCamera()

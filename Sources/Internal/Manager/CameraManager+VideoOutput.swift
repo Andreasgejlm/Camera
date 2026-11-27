@@ -29,7 +29,26 @@ import MijickTimer
 extension CameraManagerVideoOutput {
     func setup(parent: CameraManager) throws(MCameraError) {
         self.parent = parent
+        disableMovieFragments()
         try parent.captureSession.add(output: output)
+    }
+}
+private extension CameraManagerVideoOutput {
+    /// Writes each recording as one piece instead of in movie fragments.
+    ///
+    /// By default the movie output writes a fragment every 10 seconds. With
+    /// the mic's connection switched on only for the recording (see
+    /// `CameraManager.prepareAudioForRecording`), every recording longer than
+    /// those 10 seconds came out of the MP4 writer without an audio track,
+    /// while shorter ones kept their sound (camera issue #12, OneLens #128 and
+    /// #150; also reported for `AVCaptureMovieFileOutput` with MP4 files on
+    /// Stack Overflow, questions 26768987 and 27181842).
+    ///
+    /// Fragments only protect a recording the app does not get to finish (a
+    /// crash mid-recording). A recording the system ends, by an interruption
+    /// or the app leaving the foreground, is still finished and written.
+    func disableMovieFragments() {
+        output.movieFragmentInterval = .invalid
     }
 }
 
@@ -170,9 +189,30 @@ extension CameraManagerVideoOutput {
     }
 }
 
+// MARK: Trace
+private extension CameraManagerVideoOutput {
+    /// The connections a recording draws from, for the 🎧 trace: whether the
+    /// mic's connection is among them, and its level (camera issue #12).
+    static func describe(_ connections: [AVCaptureConnection]) -> String {
+        connections.map { connection in
+            let types = connection.inputPorts.map(\.mediaType.rawValue).joined(separator: "+")
+            let audio = connection.audioChannels.isEmpty ? "" : " \(CameraManager.audioLevels(of: connection))"
+            return "[\(types) active=\(connection.isActive) enabled=\(connection.isEnabled)\(audio)]"
+        }.joined(separator: " ")
+    }
+}
+
 // MARK: Receive Data
 extension CameraManagerVideoOutput: @preconcurrency AVCaptureFileOutputRecordingDelegate {
+    func fileOutput(_ output: AVCaptureFileOutput, didStartRecordingTo fileURL: URL, from connections: [AVCaptureConnection]) {
+        #if DEBUG
+        CameraManager.traceAudioSession("movie recording started | \(Self.describe(connections))")
+        #endif
+    }
     func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: (any Error)?) {
+        #if DEBUG
+        CameraManager.traceAudioSession("movie recording finished | \(Self.describe(connections))", error: error)
+        #endif
         Task {
             // Covers recordings the system ends on its own (interruption, disk full)
             // without going through stopRecording().

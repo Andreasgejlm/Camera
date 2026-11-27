@@ -63,6 +63,7 @@ import AVKit
     /// only records the reason, so a stop can never be queued ahead of it.
     private var isFirstStartQueued: Bool = false
     private var audioRouteObserver: (any NSObjectProtocol)?
+    private var captureSessionObservers: [any NSObjectProtocol] = []
 
     // MARK: Focus & Exposure
     /// Exposure change from dragging the sun next to the focus square, in EV,
@@ -476,13 +477,51 @@ extension CameraManager {
 
     /// Debug aid for "OneLens paused my music" reports: `otherAudioPlaying`
     /// turning false right after one of these lines names the step that did it.
-    nonisolated static func traceAudioSession(_ label: String, error: (any Error)? = nil) {
+    ///
+    /// With `audioConnection`, the line also says whether the movie output's
+    /// mic connection is active (the pipeline has an audio track to record)
+    /// and enabled (the mic is on). A recording that starts with the
+    /// connection inactive is written without sound (camera issue #12).
+    nonisolated static func traceAudioSession(_ label: String, audioConnection: AVCaptureConnection?? = nil, error: (any Error)? = nil) {
         #if DEBUG
         let audio = AVAudioSession.sharedInstance()
         let outputs = audio.currentRoute.outputs.map(\.portType.rawValue)
         let inputs = audio.currentRoute.inputs.map(\.portType.rawValue)
         let failure = error.map { " error=\($0)" } ?? ""
-        print("🎧 \(label) | otherAudioPlaying=\(audio.isOtherAudioPlaying) category=\(audio.category.rawValue) mode=\(audio.mode.rawValue) options=\(audio.categoryOptions.rawValue) rate=\(Int(audio.sampleRate)) outputs=\(outputs) inputs=\(inputs)\(failure)")
+        let connection: String = switch audioConnection {
+            case .none: ""
+            case .some(.none): " audioConnection=none"
+            case .some(.some(let connection)): " audioConnection(active=\(connection.isActive) enabled=\(connection.isEnabled) \(audioLevels(of: connection)))"
+        }
+        print("🎧 \(label) | otherAudioPlaying=\(audio.isOtherAudioPlaying) category=\(audio.category.rawValue) mode=\(audio.mode.rawValue) options=\(audio.categoryOptions.rawValue) rate=\(Int(audio.sampleRate)) inputAvailable=\(audio.isInputAvailable) outputs=\(outputs) inputs=\(inputs)\(connection)\(failure)")
+        #endif
+    }
+    /// `traceAudioSession` with the movie output's mic connection, for the
+    /// steps that rebuild the capture pipeline.
+    func traceRecordingAudio(_ label: String) {
+        Self.traceAudioSession(label, audioConnection: .some(videoOutput.output.connection(with: .audio)))
+    }
+    /// The mic's live level on a connection: the channel count and, per
+    /// channel, the average and peak power in dB. The levels move only while
+    /// audio actually flows through the connection, so levels stuck at one
+    /// value (or no channels) on an enabled connection mean the mic delivers
+    /// nothing, whatever `isActive` says.
+    nonisolated static func audioLevels(of connection: AVCaptureConnection) -> String {
+        let channels = connection.audioChannels
+        let levels = channels.map { String(format: "%.1f/%.1f", $0.averagePowerLevel, $0.peakHoldLevel) }
+        return "channels=\(channels.count) levels(avg/peak dB)=\(levels)"
+    }
+    /// Debug aid for silent recordings (camera issue #12): traces the mic's
+    /// level on the movie output's connection a few moments after it was
+    /// switched on, to tell a mic that delivers audio from one that does not.
+    nonisolated static func traceAudioLevelsAfterRecordingStarts(_ connection: AVCaptureConnection?, on queue: DispatchQueue) {
+        #if DEBUG
+        let box = UncheckedSendableBox(value: connection)
+        for delay in [0.3, 1.0, 3.0] {
+            queue.asyncAfter(deadline: .now() + delay) {
+                traceAudioSession("recording audio +\(delay)s", audioConnection: .some(box.value))
+            }
+        }
         #endif
     }
     func traceAudioRouteChanges() {
@@ -491,6 +530,20 @@ extension CameraManager {
         audioRouteObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { note in
             let reason = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
             Self.traceAudioSession("ROUTE CHANGE reason=\(reason)")
+        }
+        // Interruptions and runtime errors of the capture session, which can
+        // stop the mic without any change to the audio session.
+        let captureSessionEvents: [(Notification.Name, String)] = [
+            (AVCaptureSession.wasInterruptedNotification, "CAPTURE SESSION INTERRUPTED"),
+            (AVCaptureSession.interruptionEndedNotification, "CAPTURE SESSION INTERRUPTION ENDED"),
+            (AVCaptureSession.runtimeErrorNotification, "CAPTURE SESSION RUNTIME ERROR"),
+        ]
+        for (name, label) in captureSessionEvents {
+            captureSessionObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { note in
+                let reason = note.userInfo?[AVCaptureSessionInterruptionReasonKey].map { " reason=\($0)" } ?? ""
+                let error = note.userInfo?[AVCaptureSessionErrorKey].map { " error=\($0)" } ?? ""
+                Self.traceAudioSession("\(label)\(reason)\(error)")
+            })
         }
         #endif
     }
@@ -612,14 +665,19 @@ extension CameraManager {
     /// mic input itself has been attached since setup, so the running
     /// session's topology does not change here and the preview is not rebuilt.
     func prepareAudioForRecording() async {
-        guard audioInput != nil else { return }
+        guard audioInput != nil else {
+            Self.traceAudioSession("recording without a mic attached (setupError=\(audioSetupError.map { "\($0)" } ?? "none"))")
+            return
+        }
 
         let connection = UncheckedSendableBox(value: videoOutput.output.connection(with: .audio))
+        let queue = sessionQueue
         await withCheckedContinuation { continuation in
-            sessionQueue.async {
+            queue.async {
                 Self.activateAudioSessionForRecording()
                 connection.value?.isEnabled = true
-                Self.traceAudioSession("recording audio on")
+                Self.traceAudioSession("recording audio on", audioConnection: .some(connection.value))
+                Self.traceAudioLevelsAfterRecordingStarts(connection.value, on: queue)
                 continuation.resume()
             }
         }
@@ -1068,6 +1126,7 @@ extension CameraManager {
     func setCameraPosition(_ position: CameraPosition) async throws {
         guard position != attributes.cameraPosition, !isChanging else { return }
 
+        traceRecordingAudio("camera flip start")
         await cameraMetalView.beginCameraFlipAnimation()
         // The outgoing camera keeps its settings for when it comes back.
         returnDeviceToContinuousFocusAndExposure()
@@ -1099,8 +1158,9 @@ extension CameraManager {
         }
 
         updateMacroObservation(position: position, device: device)
-        
+
         await cameraMetalView.finishCameraFlipAnimation()
+        traceRecordingAudio("camera flip done")
     }
 }
 private extension CameraManager {
@@ -1318,9 +1378,11 @@ extension CameraManager {
             guard targetResolution != attributes.resolution else { continue }
 
             try await performFormatTransition {
+                self.traceRecordingAudio("format change start \(targetResolution.rawValue)")
                 await self.applySessionPresetOffMain(targetResolution)
                 self.attributes.resolution = targetResolution
             } afterFramesResume: {
+                self.traceRecordingAudio("format change done \(targetResolution.rawValue)")
                 // Applied only once frames flow at the new format — setting the zoom
                 // while the session is still reconfiguring lets the reconfiguration
                 // override it, leaving the wrong lens/perspective visible.
